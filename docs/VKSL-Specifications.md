@@ -4,7 +4,7 @@
 ## Abstract
 VKSL (VKE Shader Language) is a statically typed GLSL-style language designed for writing GPU programs targeting 
 the SPIR-V intermediate representation. The language aims to simplify shader development by removing unnecessary 
-explicitness while retaining control over program behaviour and resource representation. 
+explicitness while retaining control over program behavior and resource representation. 
 This document specifies the syntax and semantics of VKSL and the mapping of its constructs to SPIR-V
 
 ## 1. Introduction
@@ -220,6 +220,98 @@ floating_point_literal ::= digits "." digits? exponent? floating_point_suffix?
 floating_point_suffix ::= "f32" | "f64"
 exponent ::= ("e" | "E") ("+" | "-")? digits
 ```
+
+## 4. Types
+### 4.1 Scalar Types
+A scalar type represents a single value. VKSL provides boolean, integer and floating-point types.
+
+| Type | Description                                    |
+|------|------------------------------------------------|
+| bool | Boolean value                                  |
+| int  | Signed 32-bit integer                          |
+| uint | Unsigned 32-bit integer                        |
+| f32  | 32-bit (single-precision) floating-point value |
+| f64  | 64-bit (double-precision) floating-point value |
+
+#### 4.1.1 Bool
+`bool` represents a boolean value. A `bool` has exactly two possible values: `true` or `false`
+
+#### 4.1.2 Int
+`int` represents a 32-bit signed integer type. Its range is from `-2^31` to `2^31-1`
+
+#### 4.1.3 UInt
+`uint` represents a 32-bit unsigned integer type. Its range is from `0` to `2^32-1`
+
+#### 4.1.4 F32
+`f32` represents a 32-bit single-precision floating-point type.
+
+#### 4.1.5 F64
+`f64` represents a 64-bit double-precision floating-point type.
+
+### 4.2 Vector Types
+A vector type represents an ordered collection of two, three or four values of the same scalar type.
+Vectors can only be 2, 3 or 4 dimensional.
+
+The name of a vector type consists of a scalar-type prefix (e.g. `b`, `i`, `u`, `d`), followed by `vec` and 
+the number of elements `N` ranging from two to four.
+
+VKSL provides vector types for each scalar type:
+
+| Scalar | Vector Types              |
+|--------|---------------------------|
+| `bool` | `bvec2`, `bvec3`, `bvec4` |
+| `int`  | `ivec2`, `ivec3`, `ivec4` |
+| `uint` | `uvec2`, `uvec3`, `uvec4` |
+| `f32`  | `vec2`, `vec3`, `vec4`    |
+| `f64`  | `dvec2`, `dvec3`, `dvec4` |
+
+#### 4.2.1 Vector Component Access
+To access specific components of a vector you may use the following expressions:
+
+| Expression | Component                          |
+|------------|------------------------------------|
+| vector.x   | The first component of the vector  |
+| vector.y   | The second component of the vector |
+| vector.z   | The third component of the vector  |
+| vector.w   | The fourth component of the vector |
+
+Additionally, `x`, `y`, `z` and `w` may be replaced with `r`, `g`, `b`, `a` respectively.
+
+The first and second components may additionally be accessed using the aliases `u` and `v`, respectively.
+
+#### 4.2.2 Swizzles
+A vector swizzle is an expression consisting of a vector followed by a sequence of two or more component selectors. 
+A swizzle may contain between one and four component selectors.
+
+A swizzle shall use component selectors from a single naming set. 
+The `xyzw`, `rgba`, and `uv` naming sets shall not be mixed within a single swizzle.
+
+A component selector shall refer to a component that exists in the vector. For example, `vec2.z` is invalid.
+
+A swizzle expression has the same scalar type as the vector from which it is derived and a component count equal to the number of selectors.
+
+Examples:
+```
+let v = vec4(1.0, 2.0, 3.0, 4.0);
+
+v.xyz; // vec3(1.0, 2.0, 3.0)
+v.zyx; // vec3(3.0, 2.0, 1.0)
+v.xxxx; // vec4(1.0, 1.0, 1.0, 1.0)
+v.rg; // vec2(1.0, 2.0)
+```
+
+A swizzle expression may be used as the destination of an assignment provided that no component occurs more than once 
+within the swizzle.
+```
+v.xy = vec2(5.0, 6.0);
+v.zyx = vec3(3.0, 2.0, 1.0);
+
+// A swizzle containing duplicate components shall not be assignable.
+
+v.xx = vec2(1.0, 2.0); // invalid
+v.xxy = vec3(1.0, 2.0, 3.0); // invalid
+```
+
 
 TODO:
 4. Types
