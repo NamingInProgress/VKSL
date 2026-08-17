@@ -1,0 +1,40 @@
+include vke:colors;
+
+// GLSL compatible syntax for extensions
+extension GL_Something require;
+
+uniform set = 0 binding = 0 sampler2D[] textures;
+
+input vec3 pos;
+input vec4 color;
+input vec2 uv;
+input int textureId; // automatically inserts flat, because int, uint, bool cannot be interpolated in vk or anything for that matter
+// optionally this syntax
+input flat vec3 someGoofyTHing;
+
+provide vec4 tintColor;
+
+output vec4 color;
+
+struct ABC {
+    a: float;
+};
+
+push_constats constants {
+	view, proj: mat4;
+};
+
+fn vertex() {
+	VKSL_pos = constants.proj * constants.view * vec4(pos, 1);
+	tintColor = colors.red * 0.2;
+}
+
+fn fragment() {
+	let t = color.a;
+
+	let texColor = texture(textures[false ? 0 : :textureId], uv);
+	// optionally
+	// let texColor = sample_tex(textureId, uv);
+	// let texColor = texture_yflip(textureId, uv); // texture_yflip -> std.texture_yflip
+	color = lerp(texColor, color, t) + tintColor;
+}

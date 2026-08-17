@@ -73,19 +73,35 @@ The following keywords are reserved:
 |----------------|-----------------------------------------------------------------------------|
 | fn             | Declares a function                                                         |
 | struct         | Declares a structure                                                        |
+| this           | The instance on which a structure method was call on (see Segment 4.5.2     | 
 | if             | Conditional execution                                                       |
 | else           | Defines the alternative branch of a conditional statement                   |
 | while          | Defines a while loop                                                        |
 | for            | Defines a for loop                                                          |
 | return         | Returns from a function                                                     |
-| let            | Declares a variable                                                         |
+| let            | Declares a mutable variable                                                 |
+| const          | Declares an immutable variable                                              |
 | include        | Includes a different module                                                 |
 | extension      | Defines the usage of an extension                                           |
+| enable         | Enables an extension                                                        |
+| require        | Specifies an extension is required                                          |
+| warn           | If this extension is used warnings will be emitted                          |
+| disable        | Disables an extension                                                       |
 | input          | Declares a vertex input variable                                            |
+| flat           | Specifies an input is interpolated using `flat`                             |
+| smooth         | Specifies an input is interpolated using `smooth`                           |
+| noperpspecitve | Specifies an input is interpolated using `noperspective`                    |
 | output         | Declares a fragment output variable                                         |
 | provide        | Declares an input to the fragment shader, that is not defined using `input` |
 | push_constants | Declares a push constants block                                             |
 | uniform        | Declares a uniform                                                          |
+| std430         | Marks a buffer resource as using the STD430 layout                          |
+| std140         | Marks a buffer resource as using the STD140 layout                          |
+| buffer         | Declares a GPU buffer                                                       |
+| readonly       | Marks a buffer declared with `buffer` as read-only                          |
+| writeonly      | Marks a buffer declared with `buffer` as write-only                         |
+| break          | Exits the current loop                                                      |
+| continue       | Skips the current iteration in a loop                                       |
 
 ### 3.5 Built-in Variables
 VKSL defines a set of built-in variables that provide access to functionality or resources supplied by the shader
@@ -95,9 +111,9 @@ Built-in identifiers beginning with `VKSL_` are reserved and shall not be redecl
 
 The following built-in identifiers are defined:
 
-| Identifier    | Purpose                                                   |
-|---------------|-----------------------------------------------------------|
-| VKSL_position | Specifies the output position of the vertex shader stage  |
+| Identifier | Purpose                                                  |
+|------------|----------------------------------------------------------|
+| VKSL_pos   | Specifies the output position of the vertex shader stage |
 
 ### 3.6 Literals
 
@@ -312,6 +328,283 @@ v.xx = vec2(1.0, 2.0); // invalid
 v.xxy = vec3(1.0, 2.0, 3.0); // invalid
 ```
 
+### 4.3 Matrix Types
+A matrix type represents an ordered collection of floating-point vectors.
+Matrices are composed of columns, with each column containing the number of
+elements specified by the number of rows.
+
+VKSL provides matrix types with two through four columns and two through four
+rows. All matrix types contain `f32` or `f64` components.
+
+Matrices are column-major. The first index of a matrix selects a column, and
+the second index selects an element within that column.
+
+For example, `mat4` represents a matrix with four columns and four rows of type `f32`:
+```
+let matrix = mat4(1);
+
+matrix[0]       // first column
+matrix[0][0]    // first element of the first column
+matrix[2][1]    // second element of the third column
+```
+
+#### 4.3.1 Single-Precision Matrices
+Single-precision matrices contain components of type `f32`:
+
+A matrix type is defined as `matCxR`, with `C` columns and `R` rows ranging from 2 to 4.
+
+For a matrix with the same amount of rows as columns the type is defined as `matN` with N being the number of rows and columns ranging from 2 to 4.
+
+| Type   | Columns | Rows |
+|--------|---------|------|
+| mat2   | 2       | 2    |
+| mat3   | 3       | 3    |
+| mat4   | 4       | 4    |
+| mat2x3 | 2       | 3    |
+| mat2x4 | 2       | 4    |
+| mat3x2 | 3       | 2    |
+| mat3x4 | 3       | 4    |
+| mat4x2 | 4       | 2    |
+| mat4x3 | 4       | 3    |
+
+#### 4.3.2 Double-Precision Matrices
+Double-precision matrices contain components of type `f64`:
+
+The definition of the matrix type is the same as for single-precision matrices defined in Section 4.3.1, but use the `dmat` prefix instead of the `mat` prefix.
+
+| Type    | Columns | Rows |
+|---------|---------|------|
+| dmat2   | 2       | 2    |
+| dmat3   | 3       | 3    |
+| dmat4   | 4       | 4    |
+| dmat2x3 | 2       | 3    |
+| dmat2x4 | 2       | 4    |
+| dmat3x2 | 3       | 2    |
+| dmat3x4 | 3       | 4    |
+| dmat4x2 | 4       | 2    |
+| dmat4x3 | 4       | 3    |
+
+### 4.4 Arrays
+An array represents an ordered collection of elements of the same type.
+All elements of the array shall have the same type.
+
+An array type is specified by an element type, optionally followed by an integer literal, enclosed in square brackets.
+
+#### 4.4.1 Runtime Size Arrays
+A runtime size array is created when a size is not given at compile time.
+
+Runtime size arrays are only permitted in Shader Storage Buffer Objects.
+
+#### 4.4.2 Examples & Definition
+Examples:
+```
+int[123]
+vec3[10]
+vec4[] // Arrays without a predefined size shall only appear in Shader Storage Buffer Objects as defined in Section 9.2.1
+```
+
+Definition:
+```
+array_type ::= type "[" digits? "]"
+```
+
+The number of elements in an array is called its length.
+
+An array element is accessed using the indexing operation. The index shall evaluate to a non-negative integer value.
+
+Array indices are zero-indexed. For an array of length `N`, valid indices range from `0` to `N-1`.
+
+### 4.5 Structures
+A structure represents a collection of one or more named members. Each member has a type and an identifier. Members of a struct may have different types.
+
+A structure is declared using the `struct` keyword.
+
+The identifier following the `struct` keyword introduces a structure type with the specified name.
+
+A structure type may be constructed by invoking its type name as a constructor. Constructor arguments correspond to the structure's members in declaration order.
+
+Example:
+```
+struct Camera {
+    projection, view: mat4;
+    position, lookDir: vec3;
+}
+```
+
+Each member of the struct is accessed using the member access operator `.`.
+
+```
+let camera = Camera(projection, view, position, lookDir);
+let cameraDirection = camera.lookDir; 
+```
+
+A structure member shall have a type that is valid in the context in which
+the structure is declared.
+
+#### 4.5.1 Structure Declaration
+The syntax of a structure declaration is:
+```
+struct_decl ::= "struct" identifier "{" struct_member+ "}"
+struct_member ::= (identifier_list ":" type ";") | method_declaration
+identifier_list ::= identifier ("," identifier)*
+```
+
+Each member shall have a unique identifier within the structure.
+
+A structure shall not directly or indirectly contain itself as a member.
+
+A structure may contain other structures.
+
+A structure shall not be empty. To be valid, a structure requires one or more members.
+
+#### 4.5.2 Methods in Structures
+A structure may contain method declarations. A method is a function associated with a structure type and may access the 
+members of the structure through the `this` keyword.
+
+Within a method, `this` refers to the instance on which the method was invoked.
+
+Method declaration follows the same convention as specified in Section 7.3
+
+If the instance is not declared as `const`, members of the instance may be modified through `this`.
+
+If the instance is declared as `const`, modification of its members through `this` is not permitted.
+
+The `this` expression may be passed as an argument to functions and methods.
+
+Example:
+```
+struct MyCustomStructure {
+    a, b: int;
+    
+    fn sum() -> int {
+        return this.a + this.b;
+    }
+}
+
+fn main() {
+    let s = MyCustomStructure(5, 10);
+   
+    let sum = s.sum();
+}
+```
+
+### 4.6 Resource Types
+Resource types represent resources that are provided to a shader by the graphics API. Unlike ordinary value types, resource types represent access
+to externally provided GPU resources.
+
+VKSL provides resource types for sampled images, storage images, and samplers.
+
+Resource types are opaque and cannot be constructed or modified as ordinary values.
+
+If no packing type is specified, std140 shall be used for uniform buffers and std430 shall be used for shader storage buffers.
+
+#### 4.6.1 Sampled Images
+The `image1D`, `image2D`, `image3D`, and `imageCube` types represent image resources.
+
+The following sampled image types are provided:
+
+| Type        | Description                     |
+|-------------|---------------------------------|
+| `image1D`   | One-dimensional sampled image   |
+| `image2D`   | Two-dimensional sampled image   |
+| `image3D`   | Three-dimensional sampled image |
+| `imageCube` | Cube sampled image              |
+
+#### 4.6.2 Combined Image Samplers
+A combined image sampler type represents a sampled image together with a sampler.
+
+The following combined image sampler types are provided:
+
+| Type          | Description                              |
+|---------------|------------------------------------------|
+| `sampler1D`   | One-dimensional combined image sampler   |
+| `sampler2D`   | Two-dimensional combined image sampler   |
+| `sampler3D`   | Three-dimensional combined image sampler |
+| `samplerCube` | Cube combined image sampler              |
+
+### 4.7 Resource Declarations
+A resource declaration declares a resource that is provided to a shader by the graphics API.
+
+The `uniform` keyword indicates that the resource is provided by the shader environment rather than created by the shader.
+
+A resource declaration specifies a descriptor set, binding, resource type, and identifier.
+
+The `set` and `binding` values specify the descriptor set and binding to which the resource is assigned.
+
+A buffer declaration may contain an inline structure declaration. The identifier preceding the structure body 
+specifies the name of the structure type, while the identifier following the structure body specifies the name of the resource instance.
+
+Definition:
+```
+uniform_decl ::= ("uniform" descriptor_location type_specifier identifier ";") | ubo_decl | ssbo_decl
+descriptor_location ::= "set" "=" integer_literal "binding" "=" integer_literal
+packing_type ::= ("std140" | "std430")
+```
+
+#### 4.7.1 Uniform Buffers
+A uniform buffer provides read-only access to a block of uniformly laid-out data.
+
+The struct layout of a uniform buffer block is subject to memory alignment rules.
+
+Definition:
+```
+ubo_decl ::= "uniform" descriptor_location packing_type? type_specifier identifier ";"
+```
+
+Example:
+```
+uniform set = 0 binding = 0 Camera {
+    projection, view: mat4;
+    position: vec3;
+} camera;
+```
+
+The declaration above defines a structure type named Camera and a uniform
+buffer resource named camera.
+
+The structure type is equivalent to:
+```
+struct Camera {
+    projection, view: mat4;
+    position: vec3;
+}
+```
+and the resource is equivalent to:
+```
+uniform set = 0 binding = 0 Camera camera;
+```
+
+#### 4.7.2 Shader Storage Buffers
+A shader storage buffer provides access to a block of GPU data.
+
+The struct layout of a shader storage buffer block is subject to memory alignment rules.
+
+A shader storage buffer may be defined with an access modifier.
+
+VKSL defines two access modifiers:
+
+| Keyword   | Description                            |
+|-----------|----------------------------------------|
+| readonly  | Marks the storage buffer as read-only  |
+| writeonly | Marks the storage buffer as write-only |
+
+If neither modifier is specified, the shader may both read from and write to the storage buffer.
+
+Definition:
+```
+ssbo_decl ::= "uniform" descriptor_location packing_type? access_modifier? "buffer" type_specifier identifier ";"
+access_modifier ::= "readonly" | "writeonly"
+```
+
+#### 4.7.3 Descriptor Locations
+A uniform declaration shall specify a descriptor set and binding using the `set` and `binding` specifiers.
+
+The value following `set` specifies the descriptor set number.
+The value following `binding` specifies the binding number.
+
+Both values shall be non-negative integer constants.
+
+The pair `(set, binding)` uniquely identifies a descriptor within a shader interface. Two resource declarations shall not specify the same descriptor location.
 
 TODO:
 4. Types
