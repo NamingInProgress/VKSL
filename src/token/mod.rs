@@ -1,15 +1,26 @@
 pub mod tokenizer;
+pub mod utils;
 
+use crate::parser;
+use crate::parser::err::{ParseErr, ParseErrType};
+use crate::token::tokenizer::History;
 use mvutils_proc_macro::TryFromString;
 use std::path::PathBuf;
+use mvutils::utils::TetrahedronOp;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TokenContext {
+    pub line: u32,
+    pub start_pos: u32,
+    pub end_pos: u32,
+    pub file: Option<PathBuf>,
+    pub history: History
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Token {
     pub ty: TokenType,
-    pub line: u32,
-    pub start_pos: u32,
-    pub end_pos: u32,
-    pub file: Option<PathBuf>
+    pub ctx: TokenContext
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,8 +36,6 @@ pub enum TokenType {
     Semi,
     Colon,
     Question,
-    LArrow,
-    RArrow,
 
     Keyword(Keyword),
     Literal(Literal),
@@ -36,7 +45,7 @@ pub enum TokenType {
     Ident(String)
 }
 
-#[derive(Clone, Debug, PartialEq, TryFromString)]
+#[derive(Copy, Clone, Debug, PartialEq, TryFromString)]
 pub enum Keyword {
     #[casing(Lower)] Fn,
     #[casing(Lower)] Struct,
@@ -69,7 +78,7 @@ pub enum Keyword {
     #[casing(Lower)] Noperspective,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Literal {
     BoolLit(bool),
     IntLit(i32),
@@ -78,8 +87,9 @@ pub enum Literal {
     DoubleLit(f64),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Operator {
+    Assign,
     Plus,
     Minus,
     Mul,
@@ -93,12 +103,38 @@ pub enum Operator {
     BitXor,
     BitNegate,
     Greater,
+    GreaterEq,
     Less,
+    LessEq,
     And,
     Or,
-    Eq,
+    EqEq,
+    Neq,
     Not,
     Lsh,
     Rsh,
-    LogicalRsh
+    LogicalRsh,
+    Merge,
+}
+
+impl Operator {
+    pub fn precedence(&self, ctx: &TokenContext, tail_gen: impl FnOnce() -> String) -> parser::Result<u8> {
+        match self {
+            Operator::Not | Operator::PlusPlus | Operator::MinusMinus => Ok(8),
+            Operator::Mul | Operator::Div | Operator::Modulo => Ok(7),
+            Operator::Plus | Operator::Minus => Ok(6),
+            Operator::Lsh | Operator::LogicalRsh | Operator::Rsh => Ok(5),
+            Operator::Less | Operator::Greater | Operator::LessEq | Operator::GreaterEq => Ok(4),
+            Operator::EqEq | Operator::Neq => Ok(3),
+            Operator::BitAnd | Operator::BitOr | Operator::BitXor | Operator::BitNegate => Ok(2),
+            Operator::And | Operator::Or => Ok(1),
+            Operator::Merge => Ok(0),
+            op => Err(ParseErr {
+                ty: ParseErrType::NonBinaryCompatibleOperator(*self),
+                ctx: ctx.clone(),
+                tail: tail_gen(),
+                hint: (*op == Operator::Assign).then_some("Consider moving variable assignment to it's own statement".to_string()),
+            }),
+        }
+    }
 }

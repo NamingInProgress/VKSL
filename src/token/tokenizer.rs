@@ -1,6 +1,6 @@
 use crate::token;
 use crate::token::Operator::*;
-use crate::token::Token;
+use crate::token::{Token, TokenContext};
 use crate::token::TokenType::*;
 use itertools::PeekNth;
 use std::collections::VecDeque;
@@ -11,35 +11,38 @@ use std::vec::IntoIter;
 
 pub type Result = core::result::Result<Token, TokenErr>;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct TokenErr {
-    file: Option<PathBuf>,
-    line: u32,
-    pos: u32,
-    error: TokenErrType,
-}
+pub const HIST_CAP: usize = 60;
+pub const TAIL_CAP: usize = 10;
 
 #[derive(Clone, PartialEq)]
-pub enum TokenErrType {
+pub enum TokenErr {
     FloatError(ParseFloatError),
     IntError(ParseIntError),
+    NegativeUInt(u32),
+    EOF
 }
 
-impl Debug for TokenErrType {
+impl Debug for TokenErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenErrType::FloatError(e) => Display::fmt(&e, f),
-            TokenErrType::IntError(e) => Display::fmt(&e, f)
+            TokenErr::FloatError(e) => Display::fmt(&e, f),
+            TokenErr::IntError(e) => Display::fmt(&e, f),
+            TokenErr::EOF => f.write_str("end of file"),
+            TokenErr::NegativeUInt(uint) => {
+                write!(f, "-{uint}u is not a valid unsigned number declaration")
+            }
         }
     }
 }
 
 pub struct Tokenizer<I: Iterator<Item = char>> {
     src: PeekNth<I>,
-    file: Option<PathBuf>,
-    line: u32,
-    pos: u32,
+    pub file: Option<PathBuf>,
+    pub line: u32,
+    pub pos: u32,
     buffer: VecDeque<Token>,
+    pub history: History,
+    pub start_pos: u32
 }
 
 impl Tokenizer<IntoIter<char>> {
@@ -57,12 +60,38 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
             line: 1,
             pos: 0,
             buffer: VecDeque::new(),
+            history: History::new(HIST_CAP),
+            start_pos: 0,
+        }
+    }
+
+    pub fn peek_token(&mut self) -> Option<Result> {
+        self.peek_token_n(0)
+    }
+
+    pub fn peek_token_n(&mut self, n: usize) -> Option<Result> {
+        let missing = n as isize - self.buffer.len() as isize + 1;
+        if missing <= 0 {
+            self.buffer.get(n).cloned().map(Ok)
+        } else {
+            for _ in 0..missing {
+                let t = self.next_token()?;
+                match t {
+                    Ok(t) => {
+                        self.buffer.push_back(t);
+                    }
+                    Err(e) => return Some(Err(e))
+                }
+            }
+            self.peek_token_n(n)
         }
     }
 
     pub fn next_token(&mut self) -> Option<Result> {
         if !self.buffer.is_empty() {
-            return Some(Ok(self.buffer.pop_front().unwrap()));
+            let mut t = self.buffer.pop_front().unwrap();
+            t.ctx.history = self.history.clone();
+            return Some(Ok(t));
         }
 
         loop {
@@ -73,8 +102,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
             }
         }
 
-        let c = self.inc()?;
+        let mut c = self.inc()?;
         let start_pos = self.pos;
+        self.start_pos = start_pos;
 
         loop {
             let token_type = match c {
@@ -99,21 +129,6 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                         Operator(PlusPlus)
                     } else {
                         Operator(Plus)
-                    }
-                }
-
-                '-' => {
-                    if Some('=') == self.peek() {
-                        self.inc();
-                        OperatorAssign(Minus)
-                    } else if Some('-') == self.peek() {
-                        self.inc();
-                        Operator(MinusMinus)
-                    } else if Some('>') == self.peek() {
-                        self.inc();
-                        RArrow
-                    } else {
-                        Operator(Minus)
                     }
                 }
 
@@ -148,10 +163,10 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                     // < <= <- << <<=
                     if Some('-') == self.peek() {
                         self.inc();
-                        LArrow
+                        Operator(Merge)
                     } else if Some('=') == self.peek() {
                         self.inc();
-                        OperatorAssign(Less)
+                        Operator(LessEq)
                     } else if Some('<') == self.peek() {
                         self.inc();
                         if Some('=') == self.peek() {
@@ -169,7 +184,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                     // > >= >> >>= >>> >>>=
                     if Some('=') == self.peek() {
                         self.inc();
-                        OperatorAssign(Greater)
+                        Operator(GreaterEq)
                     } else if Some('>') == self.peek() {
                         self.inc();
                         if Some('=') == self.peek() {
@@ -194,7 +209,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 '!' => {
                     if Some('=') == self.peek() {
                         self.inc();
-                        OperatorAssign(Not)
+                        Operator(Neq)
                     } else {
                         Operator(Not)
                     }
@@ -203,9 +218,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 '=' => {
                     if Some('=') == self.peek() {
                         self.inc();
-                        OperatorAssign(Eq)
+                        Operator(EqEq)
                     } else {
-                        Operator(Eq)
+                        Operator(Assign)
                     }
                 }
 
@@ -252,6 +267,40 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 }
 
                 _ => {
+                    let mut is_neg = false;
+                    if c == '-' {
+                        let raw = if Some('=') == self.peek() {
+                            self.inc();
+                            OperatorAssign(Minus)
+                        } else if Some('-') == self.peek() {
+                            self.inc();
+                            Operator(MinusMinus)
+                        } else if Some('>') == self.peek() {
+                            self.inc();
+                            Operator(Merge)
+                        } else if !self.peek().is_some_and(|c| c.is_numeric()) {
+                            Operator(Minus)
+                        } else {
+                            is_neg = true;
+                            Operator(Minus)
+                        };
+                        if !is_neg {
+                            return Some(Ok(Token {
+                                ty: raw,
+                                ctx: TokenContext {
+                                    line: self.line,
+                                    start_pos,
+                                    end_pos: self.pos,
+                                    file: self.file.clone(),
+                                    history: self.history.clone()
+                                }
+                            }));
+                        }
+                        c = self.inc()?;
+                    }
+
+                    let sign = if is_neg { -1.0 } else { 1.0 };
+
                     let mut buf = String::new();
                     buf.push(c);
                     let is_num = c.is_numeric();
@@ -286,16 +335,16 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                         if is_float || is_f64 {
                             if is_f64 {
                                 match buf.parse::<f64>() {
-                                    Ok(f) => Literal(token::Literal::DoubleLit(f)),
+                                    Ok(f) => Literal(token::Literal::DoubleLit(f * sign)),
                                     Err(e) => {
-                                        return self.create_error(TokenErrType::FloatError(e));
+                                        return self.create_error(TokenErr::FloatError(e));
                                     }
                                 }
                             } else {
                                 match buf.parse::<f32>() {
-                                    Ok(f) => Literal(token::Literal::FloatLit(f)),
+                                    Ok(f) => Literal(token::Literal::FloatLit(f * sign as f32)),
                                     Err(e) => {
-                                        return self.create_error(TokenErrType::FloatError(e));
+                                        return self.create_error(TokenErr::FloatError(e));
                                     }
                                 }
                             }
@@ -309,8 +358,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                                     buf.parse::<u32>()
                                 };
                                 match res {
-                                    Ok(f) => Literal(token::Literal::UIntLit(f)),
-                                    Err(e) => return self.create_error(TokenErrType::IntError(e)),
+                                    Ok(f) if !is_neg => Literal(token::Literal::UIntLit(f)),
+                                    Err(e) => return self.create_error(TokenErr::IntError(e)),
+                                    Ok(f) => return self.create_error(TokenErr::NegativeUInt(f))
                                 }
                             } else {
                                 let res = if is_hex {
@@ -321,14 +371,18 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                                     buf.parse::<i32>()
                                 };
                                 match res {
-                                    Ok(f) => Literal(token::Literal::IntLit(f)),
-                                    Err(e) => return self.create_error(TokenErrType::IntError(e)),
+                                    Ok(f) => Literal(token::Literal::IntLit(f * sign as i32)),
+                                    Err(e) => return self.create_error(TokenErr::IntError(e)),
                                 }
                             }
                         }
                     } else {
                         if let Ok(kw) = buf.parse::<token::Keyword>() {
                             Keyword(kw)
+                        } else if "false" == buf {
+                            Literal(token::Literal::BoolLit(false))
+                        } else if "true" == buf {
+                            Literal(token::Literal::BoolLit(true))
                         } else {
                             Ident(buf)
                         }
@@ -338,21 +392,29 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
             return Some(Ok(Token {
                 ty: token_type,
-                line: self.line,
-                start_pos,
-                end_pos: self.pos,
-                file: self.file.clone(),
+                ctx: TokenContext {
+                    line: self.line,
+                    start_pos,
+                    end_pos: self.pos,
+                    file: self.file.clone(),
+                    history: self.history.clone()
+                }
             }));
         }
     }
 
-    fn create_error(&self, inner: TokenErrType) -> Option<Result> {
-        Some(Err(TokenErr {
-            file: self.file.clone(),
+    fn create_error(&self, inner: TokenErr) -> Option<Result> {
+        Some(Err(inner))
+    }
+
+    pub fn create_context(&self) -> TokenContext {
+        TokenContext {
             line: self.line,
-            pos: self.pos,
-            error: inner,
-        }))
+            start_pos: self.start_pos,
+            end_pos: self.pos,
+            file: self.file.clone(),
+            history: self.history.clone(),
+        }
     }
 
     fn is_lit_part(n: char, is_num: bool, is_hex: bool) -> bool {
@@ -363,10 +425,6 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         }
     }
 
-    pub fn putback(&mut self, token: Token) {
-        self.buffer.push_back(token);
-    }
-
     fn inc(&mut self) -> Option<char> {
         self.pos += 1;
         let n = self.src.next()?;
@@ -374,6 +432,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
             self.line += 1;
             self.pos = 0;
         }
+        self.history.push(n);
         Some(n)
     }
 
@@ -441,6 +500,45 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         }
         f
     }
+
+    pub fn expect_any(&mut self) -> Result {
+        if let Some(n) = self.next_token() {
+            n
+        } else {
+            self.create_error(TokenErr::EOF).expect("will be some look at method bruh")
+        }
+    }
+
+    pub fn expect_any_peeked(&mut self) -> Result {
+        if let Some(n) = self.peek_token() {
+            n
+        } else {
+            self.create_error(TokenErr::EOF).expect("will be some look at method bruh")
+        }
+    }
+
+    pub fn next_raw_chars(&mut self, n: usize) -> String {
+        let mut s = String::with_capacity(n);
+        for _ in 0..n {
+            if let Some(c) = self.src.next() {
+                s.push(c);
+            } else {
+                break;
+            }
+        }
+        s
+    }
+
+    pub fn tail(&mut self, n: usize) -> String {
+        self.next_raw_chars(n)
+            .chars()
+            .take_while(|c| *c != '\n')
+            .collect::<String>()
+    }
+
+    pub(crate) fn tail_default(&mut self) -> String {
+        self.tail(TAIL_CAP)
+    }
 }
 
 impl<I: Iterator<Item = char>> Iterator for Tokenizer<I> {
@@ -448,5 +546,52 @@ impl<I: Iterator<Item = char>> Iterator for Tokenizer<I> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_token()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct History {
+    contents: Vec<char>,
+    seam: usize,
+    pub(crate) len: usize
+}
+
+impl History {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            contents: vec!['\0'; cap],
+            seam: 0,
+            len: 0,
+        }
+    }
+
+    pub fn push(&mut self, c: char) {
+        let cap = self.contents.len();
+        let new_index = (self.seam + 1) % cap;
+        self.len += 1;
+        if self.len > cap {
+            self.len = cap;
+        }
+        self.contents[new_index] = c;
+        self.seam = new_index;
+    }
+
+    pub fn reconstruct(&self) -> String {
+        let cap = self.contents.len();
+        let mut s = String::with_capacity(cap);
+        if self.len < cap {
+            for i in 0..self.len {
+                s.push(self.contents[i + 1]);
+            }
+        } else {
+            let mut idx = (self.seam + 1) % cap;
+            let mut count = 0;
+            while count < cap {
+                s.push(self.contents[idx]);
+                idx = (idx + 1) % cap;
+                count += 1;
+            }
+        }
+        s
     }
 }

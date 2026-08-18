@@ -15,6 +15,8 @@ pub enum Expr {
     Literal(LitExpr),
     Index(IndexExpr),
     Ternary(TernaryExpr),
+    PushFront(PushFrontExpr),
+    PushBack(PushBackExpr),
 }
 
 #[derive(Clone, Debug)]
@@ -26,8 +28,8 @@ pub struct UnaryExpr {
 #[derive(Clone, Debug)]
 pub struct BinExpr {
     pub op: Operator,
-    pub a: Box<Expr>,
-    pub b: Box<Expr>
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>
 }
 
 #[derive(Clone, Debug)]
@@ -63,4 +65,16 @@ pub struct TernaryExpr {
     pub cond: Box<Expr>,
     pub yes: Box<Expr>,
     pub no: Box<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PushFrontExpr {
+    pub target: Box<Expr>,
+    pub addition: Box<Expr>
+}
+
+#[derive(Clone, Debug)]
+pub struct PushBackExpr {
+    pub target: Box<Expr>,
+    pub addition: Box<Expr>
 }

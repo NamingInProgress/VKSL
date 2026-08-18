@@ -1,9 +1,33 @@
 use enum_dispatch::enum_dispatch;
 use crate::ast::expr::Expr;
-use crate::ast::extension_behavior::ExtensionBehavior;
-use crate::ast::input_interpolation::InputInterpolation;
 use crate::ast::ty::Type;
-use crate::ast::uniform_modifiers::UniformModifier;
+
+#[derive(Clone, Debug)]
+pub enum ExtensionBehavior {
+    Enable,
+    Require,
+    Warn,
+    Disable
+}
+
+#[derive(Clone, Debug)]
+pub enum InputInterpolation {
+    Flat,
+    Smooth,
+    Noperspective
+}
+
+#[derive(Clone, Debug)]
+pub enum UniformModifier {
+    Readonly,
+    PackingType(PackingType)
+}
+
+#[derive(Clone, Debug)]
+pub enum PackingType {
+    STD140,
+    STD430
+}
 
 #[enum_dispatch(Stmts)]
 trait Stmts {}

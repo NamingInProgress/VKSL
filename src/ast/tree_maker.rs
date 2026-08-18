@@ -1,10 +1,6 @@
 use crate::ast::expr::Expr;
-use crate::ast::extension_behavior::ExtensionBehavior;
-use crate::ast::input_interpolation::InputInterpolation;
 use crate::ast::stmt::{*};
 use crate::ast::ty::Type;
-use crate::ast::uniform_modifiers::PackingType::{STD140, STD430};
-use crate::ast::uniform_modifiers::{PackingType, UniformModifier};
 
 #[allow(non_snake_case)]
 pub fn If(cond: Expr, branch: Stmt) -> Stmt {
@@ -210,7 +206,7 @@ pub fn UBO(name: String, fields: Vec<StructField>) -> Stmt {
     UniformStmt {
         name,
         ty: Type::SingleType("UNIFORM_BUFFER".to_string()),
-        mods: vec!(UniformModifier::PackingType(STD140)),
+        mods: vec!(UniformModifier::PackingType(PackingType::STD140)),
         fields
     }.into()
 }
@@ -231,7 +227,7 @@ pub fn SSBO(name: String, fields: Vec<StructField>) -> Stmt {
     UniformStmt {
         name,
         ty: Type::SingleType("SHADER_STORAGE_BUFFER".to_string()),
-        mods: vec!(UniformModifier::PackingType(STD430)),
+        mods: vec!(UniformModifier::PackingType(PackingType::STD430)),
         fields
     }.into()
 }

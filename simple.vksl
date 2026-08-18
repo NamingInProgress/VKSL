@@ -1,11 +1,4 @@
+input flat vec2[10u] name;
 input noperspective vec3 pos;
 
 output vec4 color;
-
-fn vertex() {
-    //VKSL_pos = pos;
-}
-
-fn fragment() {
-    //color = vec4(1);
-}
