@@ -1,7 +1,7 @@
 use crate::token;
 use crate::token::Operator::*;
-use crate::token::{Token, TokenContext};
 use crate::token::TokenType::*;
+use crate::token::{Token, TokCtx};
 use itertools::PeekNth;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter};
@@ -19,7 +19,7 @@ pub enum TokenErr {
     FloatError(ParseFloatError),
     IntError(ParseIntError),
     NegativeUInt(u32),
-    EOF
+    EOF,
 }
 
 impl Debug for TokenErr {
@@ -42,7 +42,7 @@ pub struct Tokenizer<I: Iterator<Item = char>> {
     pub pos: u32,
     buffer: VecDeque<Token>,
     pub history: History,
-    pub start_pos: u32
+    pub start_pos: u32,
 }
 
 impl Tokenizer<IntoIter<char>> {
@@ -80,7 +80,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                     Ok(t) => {
                         self.buffer.push_back(t);
                     }
-                    Err(e) => return Some(Err(e))
+                    Err(e) => return Some(Err(e)),
                 }
             }
             self.peek_token_n(n)
@@ -287,13 +287,13 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                         if !is_neg {
                             return Some(Ok(Token {
                                 ty: raw,
-                                ctx: TokenContext {
+                                ctx: TokCtx {
                                     line: self.line,
                                     start_pos,
                                     end_pos: self.pos,
                                     file: self.file.clone(),
-                                    history: self.history.clone()
-                                }
+                                    history: self.history.clone(),
+                                },
                             }));
                         }
                         c = self.inc()?;
@@ -307,7 +307,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                     let mut is_float = false;
                     let mut is_hex = false;
                     let mut is_bin = false;
-                    while let Some(c) = self.peek() && Self::is_lit_part(c, is_num, is_hex) {
+                    while let Some(c) = self.peek()
+                        && Self::is_lit_part(c, is_num, is_hex)
+                    {
                         if is_num && c == 'x' {
                             is_hex = true;
                         }
@@ -316,11 +318,16 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                         }
                         buf.push(self.inc()?);
                     }
-                    while let Some(c) = self.peek() && c == '.' && is_num {
+                    while let Some(c) = self.peek()
+                        && c == '.'
+                        && is_num
+                    {
                         buf.push(self.inc()?);
                         is_float = true;
                     }
-                    while let Some(c) = self.peek() && Self::is_lit_part(c, is_num, is_hex) {
+                    while let Some(c) = self.peek()
+                        && Self::is_lit_part(c, is_num, is_hex)
+                    {
                         buf.push(self.inc()?);
                     }
 
@@ -360,7 +367,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                                 match res {
                                     Ok(f) if !is_neg => Literal(token::Literal::UIntLit(f)),
                                     Err(e) => return self.create_error(TokenErr::IntError(e)),
-                                    Ok(f) => return self.create_error(TokenErr::NegativeUInt(f))
+                                    Ok(f) => return self.create_error(TokenErr::NegativeUInt(f)),
                                 }
                             } else {
                                 let res = if is_hex {
@@ -392,13 +399,13 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
             return Some(Ok(Token {
                 ty: token_type,
-                ctx: TokenContext {
+                ctx: TokCtx {
                     line: self.line,
                     start_pos,
                     end_pos: self.pos,
                     file: self.file.clone(),
-                    history: self.history.clone()
-                }
+                    history: self.history.clone(),
+                },
             }));
         }
     }
@@ -407,8 +414,8 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         Some(Err(inner))
     }
 
-    pub fn create_context(&self) -> TokenContext {
-        TokenContext {
+    pub fn create_context(&self) -> TokCtx {
+        TokCtx {
             line: self.line,
             start_pos: self.start_pos,
             end_pos: self.pos,
@@ -419,7 +426,12 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
     fn is_lit_part(n: char, is_num: bool, is_hex: bool) -> bool {
         if is_num {
-            matches!(n, 'e' | '-' | 'b' | 'x') || if is_hex { n.is_alphanumeric() } else { n.is_numeric() }
+            matches!(n, 'e' | '-' | 'b' | 'x')
+                || if is_hex {
+                    n.is_alphanumeric()
+                } else {
+                    n.is_numeric()
+                }
         } else {
             matches!(n, '_' | '$' | 'e') || n.is_alphanumeric()
         }
@@ -458,7 +470,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
     fn skip_whitespace(&mut self) -> bool {
         let mut f = false;
-        while let Some(c) = self.src.peek() && c.is_whitespace() {
+        while let Some(c) = self.src.peek()
+            && c.is_whitespace()
+        {
             self.inc();
             f = true;
         }
@@ -505,7 +519,8 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         if let Some(n) = self.next_token() {
             n
         } else {
-            self.create_error(TokenErr::EOF).expect("will be some look at method bruh")
+            self.create_error(TokenErr::EOF)
+                .expect("will be some look at method bruh")
         }
     }
 
@@ -513,7 +528,8 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         if let Some(n) = self.peek_token() {
             n
         } else {
-            self.create_error(TokenErr::EOF).expect("will be some look at method bruh")
+            self.create_error(TokenErr::EOF)
+                .expect("will be some look at method bruh")
         }
     }
 
@@ -549,11 +565,17 @@ impl<I: Iterator<Item = char>> Iterator for Tokenizer<I> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct History {
     contents: Vec<char>,
     seam: usize,
-    pub(crate) len: usize
+    pub(crate) len: usize,
+}
+
+impl Debug for History {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        f.write_str("<history>")
+    }
 }
 
 impl History {

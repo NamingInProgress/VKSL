@@ -1,29 +1,29 @@
 use crate::ast::stmt::Stmt;
-use crate::ast::ty::Type;
-use err::TokenExpectation::*;
 use crate::parser::err::{ParseErr, ParseErrType, TokenExpectation};
-use crate::token;
 use crate::token::tokenizer::Tokenizer;
-use crate::token::{Token, TokenType};
+use crate::token::{TokCtx, Literal, Token, TokenType};
+use crate::{ast, token};
+use err::TokenExpectation::*;
 
+pub mod err;
 pub mod expr;
 pub mod stmt;
-pub mod err;
 pub mod types;
+pub mod mods;
 
 pub type Result<T> = core::result::Result<T, ParseErr>;
 pub type TokenRes = token::tokenizer::Result;
 
-pub struct Parser<I: Iterator<Item=char>> {
+pub struct Parser<I: Iterator<Item = char>> {
     tokens: Tokenizer<I>,
-    defs: Vec<Stmt>
+    defs: Vec<Stmt>,
 }
 
-impl<I: Iterator<Item=char>> Parser<I> {
+impl<I: Iterator<Item = char>> Parser<I> {
     pub fn new(tokens: Tokenizer<I>) -> Self {
         Self {
             tokens,
-            defs: vec!()
+            defs: vec![],
         }
     }
 
@@ -39,12 +39,13 @@ impl<I: Iterator<Item=char>> Parser<I> {
     fn expect_next(&mut self, expected: Vec<TokenExpectation>) -> Result<Token> {
         let next = self.unwrap_next()?;
 
-        let matches = expected.iter().any(|expectation| {
-            match expectation {
-                Exact(ty) => *ty == next.ty,
-                Ident => {
-                    matches!(next.ty, TokenType::Ident(_))
-                }
+        let matches = expected.iter().any(|expectation| match expectation {
+            Exact(ty) => *ty == next.ty,
+            Ident => {
+                matches!(next.ty, TokenType::Ident(_))
+            }
+            Lit => {
+                matches!(next.ty, TokenType::Literal(_))
             }
         });
 
@@ -65,22 +66,53 @@ impl<I: Iterator<Item=char>> Parser<I> {
         Ok(next)
     }
 
-    fn expect_ident(&mut self) -> Result<String> {
-        let token = self.expect_next(vec!(Ident))?;
+    fn expect_non_negative_int(&mut self) -> Result<(u32, TokCtx)> {
+        let tok = self.expect_next(vec![Lit])?;
+        if let TokenType::Literal(lit) = tok.ty {
+            match lit {
+                Literal::IntLit(a) => {
+                    if a >= 0 {
+                        return Ok((a as u32, tok.ctx));
+                    }
+                }
+                Literal::UIntLit(a) => return Ok((a, tok.ctx)),
+                _ => {},
+            }
+        }
+
+        Err(self.token_err(ParseErrType::NonPositiveNumber, tok))
+    }
+
+    fn expect_ident_exact(&mut self, expected: &str) -> Result<ast::Ident> {
+        let token = self.expect_next(vec![Ident])?;
+
+        let TokenType::Ident(name) = &token.ty else {
+            unreachable!();
+        };
+
+        if name == expected {
+            return Ok(ast::Ident { val: name.clone(), tkn: token.ctx });
+        }
+
+        Err(self.token_err_with_hint(
+            ParseErrType::MismatchedLiteral(expected.to_string(), name.clone()),
+            token.ctx,
+            format!("Consider replacing {name} with {expected}"),
+        ))
+    }
+
+    fn expect_ident(&mut self) -> Result<ast::Ident> {
+        let token = self.expect_next(vec![Ident])?;
 
         match token.ty {
-            TokenType::Ident(name) => Ok(name),
+            TokenType::Ident(name) => Ok(ast::Ident { val: name, tkn: token.ctx }),
             _ => unreachable!(),
         }
     }
 
     fn expect_semi(&mut self) -> Result<Token> {
-        let token = self.expect_next(vec!(Exact(TokenType::Semi)))?;
-
-        match token.ty {
-            TokenType::Semi => Ok(token),
-            _ => unreachable!(),
-        }
+        let token = self.expect_next(vec![Exact(TokenType::Semi)])?;
+        Ok(token)
     }
 
     fn skip(&mut self) {
@@ -100,16 +132,30 @@ impl<I: Iterator<Item=char>> Parser<I> {
     pub fn peek_token(&mut self) -> Result<Option<Token>> {
         match self.tokens.peek_token() {
             None => Ok(None),
-            Some(res) => {
-                match res {
-                    Ok(t) => Ok(Some(t)),
-                    Err(e) => {
-                        let err = self.tokenizer_err(ParseErrType::TokenizerErr(e));
-                        Err(err)
-                    }
+            Some(res) => match res {
+                Ok(t) => Ok(Some(t)),
+                Err(e) => {
+                    let err = self.tokenizer_err(ParseErrType::TokenizerErr(e));
+                    Err(err)
                 }
-            }
+            },
         }
+    }
+
+    fn check_next(&mut self, looking_for: Vec<TokenExpectation>) -> Result<bool> {
+        if let Some(tt) = self.peek_token()? {
+            return Ok(looking_for.iter().any(|expectation| match expectation {
+                Exact(ty) => *ty == tt.ty,
+                Ident => {
+                    matches!(tt.ty, TokenType::Ident(_))
+                }
+                Lit => {
+                    matches!(tt.ty, TokenType::Literal(_))
+                }
+            }))
+        }
+
+        Ok(false)
     }
 
     fn unwrap_peek(&mut self) -> Result<Token> {
@@ -133,12 +179,17 @@ impl<I: Iterator<Item=char>> Parser<I> {
         }
     }
 
-    pub fn token_err_with_hint(&mut self, inner: ParseErrType, tok: Token, hint: String) -> ParseErr {
+    pub fn token_err_with_hint(
+        &mut self,
+        inner: ParseErrType,
+        tok: TokCtx,
+        hint: String,
+    ) -> ParseErr {
         let tail = self.tokens.tail_default();
 
         ParseErr {
             ty: inner,
-            ctx: tok.ctx,
+            ctx: tok,
             tail,
             hint: Some(hint),
         }

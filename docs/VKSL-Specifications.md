@@ -415,7 +415,7 @@ An array element is accessed using the indexing operation. The index shall evalu
 Array indices are zero-indexed. For an array of length `N`, valid indices range from `0` to `N-1`.
 
 ### 4.5 Structures
-A structure represents a collection of one or more named members. Each member has a type and an identifier. Members of a struct may have different types.
+A structure represents a collection of a number of named members. Each member has a type and an identifier. Members of a struct may have different types.
 
 A structure is declared using the `struct` keyword.
 
@@ -444,7 +444,7 @@ the structure is declared.
 #### 4.5.1 Structure Declaration
 The syntax of a structure declaration is:
 ```
-struct_decl ::= "struct" identifier "{" struct_member+ "}"
+struct_decl ::= "struct" identifier "{" struct_member* "}"
 struct_member ::= (identifier_list ":" type ";") | method_declaration
 identifier_list ::= identifier ("," identifier)*
 ```
@@ -536,7 +536,7 @@ specifies the name of the structure type, while the identifier following the str
 
 Definition:
 ```
-uniform_decl ::= ("uniform" descriptor_location type_specifier identifier ";") | ubo_decl | ssbo_decl
+uniform_decl ::= ("uniform" descriptor_location identifier: type_specifier ";") | ubo_decl | ssbo_decl
 descriptor_location ::= "set" "=" integer_literal "binding" "=" integer_literal
 packing_type ::= ("std140" | "std430")
 ```
@@ -548,7 +548,7 @@ The struct layout of a uniform buffer block is subject to memory alignment rules
 
 Definition:
 ```
-ubo_decl ::= "uniform" descriptor_location packing_type? type_specifier identifier ";"
+ubo_decl ::= "uniform" descriptor_location packing_type? identifier: type_specifier ";"
 ```
 
 Example:
@@ -592,7 +592,7 @@ If neither modifier is specified, the shader may both read from and write to the
 
 Definition:
 ```
-ssbo_decl ::= "uniform" descriptor_location packing_type? access_modifier? "buffer" type_specifier identifier ";"
+ssbo_decl ::= "uniform" descriptor_location packing_type? access_modifier? "buffer" identifier: type_specifier ";"
 access_modifier ::= "readonly" | "writeonly"
 ```
 

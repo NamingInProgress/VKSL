@@ -20,7 +20,7 @@ struct ABC {
     a: float;
 };
 
-push_constats constants {
+push_constats constants: struct PushConstants {
 	view, proj: mat4;
 };
 

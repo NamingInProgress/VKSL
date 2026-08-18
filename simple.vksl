@@ -1,4 +1,9 @@
-input flat vec2[10u] name;
-input noperspective vec3 pos;
+let a = my_function(a + b * 3, a ? b : 10 + 2).xyz;
+let b = -a + --something();
+let c = my_function().x.y.z;
+let d = ident.x[a++];
+return;
+return hello();
+return hi;
 
-output vec4 color;
+if (a > 5) let a: b = 5; else let a: b = 10;

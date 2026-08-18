@@ -1,26 +1,32 @@
 pub mod tokenizer;
 pub mod utils;
 
+use std::fmt::{Debug, Formatter};
 use crate::parser;
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::token::tokenizer::History;
 use mvutils_proc_macro::TryFromString;
 use std::path::PathBuf;
-use mvutils::utils::TetrahedronOp;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct TokenContext {
+#[derive(Clone, PartialEq)]
+pub struct TokCtx {
     pub line: u32,
     pub start_pos: u32,
     pub end_pos: u32,
     pub file: Option<PathBuf>,
-    pub history: History
+    pub history: History,
+}
+
+impl Debug for TokCtx {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str("<tctx>")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Token {
     pub ty: TokenType,
-    pub ctx: TokenContext
+    pub ctx: TokCtx,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,40 +48,74 @@ pub enum TokenType {
     Operator(Operator),
     OperatorAssign(Operator),
 
-    Ident(String)
+    Ident(String),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, TryFromString)]
+#[repr(u8)]
 pub enum Keyword {
-    #[casing(Lower)] Fn,
-    #[casing(Lower)] Struct,
-    #[casing(Lower)] If,
-    #[casing(Lower)] Else,
-    #[casing(Lower)] While,
-    #[casing(Lower)] For,
-    #[casing(Lower)] Return,
-    #[casing(Lower)] Let,
-    #[casing(Lower)] Include,
-    #[casing(Lower)] Extension,
-    #[casing(Lower)] Enable,
-    #[casing(Lower)] Require,
-    #[casing(Lower)] Warn,
-    #[casing(Lower)] Disable,
-    #[casing(Lower)] Input,
-    #[casing(Lower)] Output,
-    #[casing(Lower)] Provide,
-    #[custom("push_constants")] PushConstants,
-    #[casing(Lower)] Uniform,
-    #[casing(Lower)] Buffer,
-    #[custom("std430")] STD430,
-    #[custom("std140")] STD140,
-    #[casing(Lower)] Readonly,
-    #[casing(Lower)] Writeonly,
-    #[casing(Lower)] Break,
-    #[casing(Lower)] Continue,
-    #[casing(Lower)] Flat,
-    #[casing(Lower)] Smooth,
-    #[casing(Lower)] Noperspective,
+    //MODIFIERS DO NOT REORDER
+    #[casing(Lower)]
+    Flat,
+    #[casing(Lower)]
+    Smooth,
+    #[casing(Lower)]
+    Noperspective,
+    #[casing(Lower)]
+    Enable,
+    #[casing(Lower)]
+    Require,
+    #[casing(Lower)]
+    Warn,
+    #[casing(Lower)]
+    Disable,
+    #[casing(Lower)]
+    Readonly,
+    #[casing(Lower)]
+    Writeonly,
+    #[custom("std140")]
+    STD140,
+    #[custom("std430")]
+    STD430,
+
+    #[casing(Lower)]
+    Fn,
+    #[casing(Lower)]
+    Struct,
+    #[casing(Lower)]
+    If,
+    #[casing(Lower)]
+    Else,
+    #[casing(Lower)]
+    While,
+    #[casing(Lower)]
+    For,
+    #[casing(Lower)]
+    Return,
+    #[casing(Lower)]
+    Let,
+    #[casing(Lower)]
+    Const,
+    #[casing(Lower)]
+    Include,
+    #[casing(Lower)]
+    Extension,
+    #[casing(Lower)]
+    Input,
+    #[casing(Lower)]
+    Output,
+    #[casing(Lower)]
+    Provide,
+    #[custom("push_constants")]
+    PushConstants,
+    #[casing(Lower)]
+    Uniform,
+    #[casing(Lower)]
+    Buffer,
+    #[casing(Lower)]
+    Break,
+    #[casing(Lower)]
+    Continue,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -118,7 +158,11 @@ pub enum Operator {
 }
 
 impl Operator {
-    pub fn precedence(&self, ctx: &TokenContext, tail_gen: impl FnOnce() -> String) -> parser::Result<u8> {
+    pub fn precedence(
+        &self,
+        ctx: &TokCtx,
+        tail_gen: impl FnOnce() -> String,
+    ) -> parser::Result<u8> {
         match self {
             Operator::Not | Operator::PlusPlus | Operator::MinusMinus => Ok(8),
             Operator::Mul | Operator::Div | Operator::Modulo => Ok(7),
@@ -133,7 +177,9 @@ impl Operator {
                 ty: ParseErrType::NonBinaryCompatibleOperator(*self),
                 ctx: ctx.clone(),
                 tail: tail_gen(),
-                hint: (*op == Operator::Assign).then_some("Consider moving variable assignment to it's own statement".to_string()),
+                hint: (*op == Operator::Assign).then_some(
+                    "Consider moving variable assignment to it's own statement".to_string(),
+                ),
             }),
         }
     }
