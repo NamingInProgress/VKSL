@@ -1,15 +1,20 @@
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
+use crate::ast::stmt::Stmt;
+use crate::scope::SymbolId;
 use crate::token::TokCtx;
 
 pub mod expr;
 pub mod stmt;
 pub mod ty;
 
+pub type Ast = Vec<Stmt>;
+
 #[derive(Clone, Debug)]
 pub struct Ident {
     pub val: String,
-    pub tkn: TokCtx
+    pub tkn: TokCtx,
+    pub resolved_ident: Option<SymbolId>,
 }
 
 impl Display for Ident {
@@ -31,6 +36,7 @@ impl From<(String, TokCtx)> for Ident {
         Self {
             val: ty.0,
             tkn: ty.1,
+            resolved_ident: None
         }
     }
 }

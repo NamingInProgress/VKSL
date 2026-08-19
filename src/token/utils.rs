@@ -235,6 +235,15 @@ macro_rules! T {
     (noperspective) => {
         $crate::token::TokenType::Keyword($crate::token::Keyword::Noperspective)
     };
+    (yield) => {
+        $crate::token::TokenType::Keyword($crate::token::Keyword::Yield)
+    };
+    (nonuniform) => {
+        $crate::token::TokenType::Keyword($crate::token::Keyword::Nonuniform)
+    };
+    (const) => {
+        $crate::token::TokenType::Keyword($crate::token::Keyword::Const)
+    };
 
     ($ident:ident) => {
         $crate::token::TokenType::Ident(stringify!($ident).to_string())

@@ -1,9 +1,9 @@
-use crate::ast::ty::{ArrayType, PathType, PrimitiveType, Type};
+use crate::ast::ty::{ArrayType, PathType, PrimitiveType, SingleType, StructType, TupleType, Type};
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::parser::Parser;
 use crate::parser::TokenType;
-use crate::token::{TokCtx, Keyword, Literal, Token};
-use crate::{ast, parser, Te, T};
+use crate::token::{TokCtx, Keyword, Token};
+use crate::{parser, Te, T};
 use std::str::FromStr;
 use itertools::Itertools;
 use mvutils::enum_val;
@@ -11,7 +11,7 @@ use crate::ast::Ident;
 use crate::ast::stmt::Stmt;
 
 pub struct NTD {
-    pub name: ast::Ident,
+    pub name: Ident,
     pub ty: Option<Type>,
     pub colon_tk: Option<TokCtx>,
 }
@@ -77,6 +77,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 let mut all = vec![Ident {
                     val: start,
                     tkn: tok.ctx,
+                    resolved_ident: None
                 }];
                 let mut dot_tkns = vec![];
                 while let Some(Token { ty: T!(.), ctx }) = self.peek_token()? {
@@ -99,13 +100,24 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 if let Ok(prim) = PrimitiveType::from_str(&ident) {
                     Type::Primitive(prim, tok.ctx)
                 } else {
-                    Type::SingleType(ident, tok.ctx)
+                    Type::SingleType(SingleType{ name: ident, tkn: tok.ctx, resolved_name: None } )
                 }
             }
             TokenType::Keyword(Keyword::Struct) => {
                 let strct = self.parse_struct()?;
                 let strct = enum_val!(Stmt, strct, Struct);
-                Type::StructDef(Box::new(strct))
+                Type::StructDef(StructType{ inner: Box::new(strct) })
+            }
+            T!('(') => {
+                let paren1_tok = self.unwrap_next()?;
+                let types = self.parse_punctuated(T!(,), T!(')'), false, |p| p.parse_type());
+                let types = types.try_collect()?;
+                let paren2_tok = self.expect_next(Te!(')'))?;
+                Type::TupleOf(TupleType {
+                    paren1_tok: paren1_tok.ctx,
+                    types,
+                    paren2_tok: paren2_tok.ctx,
+                })
             }
             _ => {
                 let tail = self.tokens.tail_default();
@@ -128,46 +140,12 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 self.unwrap_next()?;
                 let dim = if let Some(maybe_num) = self.peek_token()? {
                     match maybe_num.ty {
-                        TokenType::Literal(Literal::UIntLit(dim)) => {
-                            self.unwrap_next()?;
-                            Some(dim)
+                        T!(']') => {
+                            None
                         }
-                        TokenType::Literal(lit) => {
-                            self.unwrap_next()?;
-
-                            let ty = ty.to_string();
-                            let hint_hint = match lit {
-                                Literal::BoolLit(b) => format!(
-                                    "consider replacing '{b}' with a literal type: {ty}[1u]"
-                                ),
-                                Literal::IntLit(i) => format!(
-                                    "consider refactoring your literal: `{ty}[{}u]`",
-                                    if i < 0 { -i } else { i }
-                                ),
-                                Literal::FloatLit(f) => {
-                                    format!("consider refactoring your literal: `{ty}[{}u]`", {
-                                        let i = f as i32;
-                                        if i < 0 { -i } else { i }
-                                    })
-                                }
-                                Literal::DoubleLit(f) => {
-                                    format!("consider refactoring your literal: `{ty}[{}u]`", {
-                                        let i = f as i64;
-                                        if i < 0 { -i } else { i }
-                                    })
-                                }
-                                Literal::UIntLit(_) => unreachable!(),
-                            };
-                            let hint = format!(
-                                "array dimensions must be constant unsigned integers, {hint_hint}"
-                            );
-                            return Err(self.token_err_with_hint(
-                                ParseErrType::IllegalArrayDim,
-                                maybe_num.ctx,
-                                hint,
-                            ));
-                        }
-                        _ => None,
+                        _ => {
+                            Some(Box::new(self.parse_expr()?))
+                        },
                     }
                 } else {
                     None

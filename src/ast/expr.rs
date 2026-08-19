@@ -1,6 +1,7 @@
-use crate::token::{TokCtx, Literal, Operator};
-use enum_dispatch::enum_dispatch;
+use crate::ast::stmt::Stmt;
 use crate::ast::Ident;
+use crate::token::{Literal, Operator, TokCtx};
+use enum_dispatch::enum_dispatch;
 
 #[enum_dispatch(Exprs)]
 #[allow(unused)]
@@ -19,6 +20,11 @@ pub enum Expr {
     Ternary(TernaryExpr),
     PreFix(PreFixExpr),
     PostFix(PostFixExpr),
+    Tuple(TupleExpr),
+    Array(ArrayExpr),
+    Block(BlockExpr),
+    Assign(AssignExpr),
+    Nonuniform(NonuniformExpr),
 }
 
 #[derive(Clone, Debug)]
@@ -39,9 +45,9 @@ pub struct BinExpr {
 #[derive(Clone, Debug)]
 pub struct FnCallExpr {
     pub ident: Ident,
-    pub paren1_tkn: TokCtx,
+    pub open_tkn: TokCtx,
     pub args: Vec<(Expr, Option<TokCtx>)>,
-    pub paren2_tkn: TokCtx,
+    pub close_tkn: TokCtx,
 }
 
 #[derive(Clone, Debug)]
@@ -91,4 +97,38 @@ pub struct PostFixExpr {
     pub op: Operator,
     pub op_tkn: TokCtx,
     pub expr: Box<Expr>
+}
+
+#[derive(Clone, Debug)]
+pub struct TupleExpr {
+    pub open_tkn: TokCtx,
+    pub args: Vec<(Expr, Option<TokCtx>)>,
+    pub close_tkn: TokCtx,
+}
+
+#[derive(Clone, Debug)]
+pub struct ArrayExpr {
+    pub open_tkn: TokCtx,
+    pub args: Vec<(Expr, Option<TokCtx>)>,
+    pub close_tkn: TokCtx,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockExpr {
+    pub open_tkn: TokCtx,
+    pub block: Vec<Stmt>,
+    pub close_tkn: TokCtx,
+}
+
+#[derive(Clone, Debug)]
+pub struct AssignExpr {
+    pub lhs: Box<Expr>,
+    pub eq_tkn: TokCtx,
+    pub rhs: Box<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NonuniformExpr {
+    pub nonuniform_tkn: TokCtx,
+    pub expr: Box<Expr>,
 }

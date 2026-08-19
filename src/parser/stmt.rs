@@ -1,4 +1,4 @@
-use crate::ast::stmt::{BlockStmt, BreakStmt, CompoundStmt, ContinueStmt, ExtensionStmt, ForStmt, IfStmt, InputStmt, MethodDeclStmt, MethodParamDecl, OutputStmt, ProvideStmt, PushConstantsStmt, ReturnStmt, Stmt, StructField, StructStmt, UniformStmt, UniformType, VarDeclStmt, WhileStmt};
+use crate::ast::stmt::{BlockStmt, BreakStmt, CompoundStmt, ContinueStmt, ExprStmt, ExtensionStmt, ForStmt, IfStmt, InputStmt, MethodDeclStmt, MethodParamDecl, OutputStmt, ProvideStmt, PushConstantsStmt, ReturnStmt, SemiStmt, Stmt, StructField, StructStmt, UniformStmt, UniformType, VarDeclStmt, WhileStmt, YieldStmt};
 use crate::ast::ty::Type;
 use crate::parser::err::TokenExpectation::*;
 use crate::parser::mods::{ModRule, Modifier, ModsUsage};
@@ -6,18 +6,33 @@ use crate::parser::Parser;
 use crate::token::{Keyword, Operator, TokenType};
 use crate::{parser, Te, T};
 use mvutils::enum_val;
+use crate::parser::err::ParseErrType;
 
 impl<I: Iterator<Item = char>> Parser<I> {
     pub fn parse_stmt(&mut self) -> parser::Result<Stmt> {
         let token = self.unwrap_peek()?;
 
         match token.ty {
-            TokenType::Keyword(kw) => {
-                let opt = self.parse_keyword(kw)?;
-                Ok(opt)
+            TokenType::Semi => {
+                Ok(SemiStmt { semi_tkn: self.expect_semi()?.ctx }.into())
             }
-            _ => panic!("{token:?}"),
+            TokenType::Keyword(kw) => {
+                Ok(self.parse_keyword(kw)?)
+            }
+            TokenType::LBrace => {
+                Ok(self.parse_block()?.into())
+            }
+            _ => Ok(self.parse_expr_stmt()?),
         }
+    }
+
+    pub fn parse_expr_stmt(&mut self) -> parser::Result<Stmt> {
+        Ok(
+            ExprStmt {
+                expr: self.parse_expr()?,
+                semi_tkn: self.expect_semi()?.ctx,
+            }.into()
+        )
     }
 
     pub fn parse_keyword(&mut self, keyword: Keyword) -> parser::Result<Stmt> {
@@ -36,22 +51,40 @@ impl<I: Iterator<Item = char>> Parser<I> {
             Keyword::If => self.parse_if(),
             Keyword::For => self.parse_for(),
             Keyword::While => self.parse_while(),
+            Keyword::Yield => self.parse_yield(),
             Keyword::Break => Ok(Stmt::Break(BreakStmt {})),
             Keyword::Continue => Ok(Stmt::Continue(ContinueStmt {})),
             _ => {
-                todo!()
+                let tk = self.unwrap_next()?.ctx;
+                Err(self.token_err_with_hint(
+                    ParseErrType::UnconstrainedUnexpectedToken(TokenType::Keyword(keyword)),
+                    tk,
+                    format!("Keyword {keyword:?} not allowed here! Try reading the documentation.")
+                ))
             }
         }
+    }
+
+    pub fn parse_yield(&mut self) -> parser::Result<Stmt> {
+        let yield_tkn = self.expect_next(Te!(yield))?.ctx;
+
+        let expr = self.parse_expr()?;
+
+        let semi_tkn = self.expect_semi()?.ctx;
+        Ok(
+            YieldStmt {
+                yield_tkn,
+                expr,
+                semi_tkn
+            }.into()
+        )
     }
 
     pub fn parse_while(&mut self) -> parser::Result<Stmt> {
         let while_tkn = self.expect_next(Te!(while))?.ctx;
         let l_paren = self.expect_next(Te!('('))?.ctx;
 
-        let mut cond = None;
-        if !self.check_next(Te!(;))? {
-            cond = Some(self.parse_expr()?);
-        }
+        let cond = self.parse_expr()?;
         
         let r_paren = self.expect_next(Te!(')'))?.ctx;
         
@@ -87,7 +120,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         let semi2_tkn = self.expect_semi()?.ctx;
 
         let mut after_run = None;
-        if !self.check_next(Te!(;))? {
+        if !self.check_next(Te!(')'))? {
             after_run = Some(self.parse_expr()?);
         }
         
@@ -256,7 +289,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             pc_tkn,
             name,
             ty,
-            semi_tkn: self.expect_semi()?.ctx,
+            semi_tkn: self.expect_semi()?.ctx
         }.into())
     }
 
@@ -307,7 +340,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     mods: resolved,
 
                     uniform_type: UniformType::SSBO,
-                    semi_tkn,
+                    semi_tkn
                 }.into()
             )
         } else if let Type::StructDef(_) = ty {
@@ -334,7 +367,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     mods: resolved,
 
                     uniform_type: UniformType::UBO,
-                    semi_tkn,
+                    semi_tkn
                 }.into()
             )
         } else {
@@ -358,7 +391,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     mods: resolved,
 
                     uniform_type: UniformType::Uniform,
-                    semi_tkn,
+                    semi_tkn
                 }.into()
             )
         }
@@ -413,7 +446,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 r_paren,
                 arrow_tkn,
                 return_type,
-                block
+                block: Box::new(block.into())
             }.into()
         )
     }
@@ -448,7 +481,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 output_tkn,
                 ty,
                 name,
-                semi_tkn: self.expect_semi()?.ctx
+                semi_tkn: self.expect_semi()?.ctx,
             }.into()
         )
     }
@@ -483,7 +516,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 ty,
                 name,
                 mods: res,
-                semi_tkn: semi_tkn,
+                semi_tkn
             }.into())
         }
     }
@@ -510,7 +543,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                             name: ntd.name,
                             colon_tkn: ntd.colon_tk.expect("needs_type is on"),
                             ty,
-                            semi_tkn: semi.ctx.clone(),
+                            semi_tkn: semi.ctx.clone()
                         };
                         fields.push(field);
                     }
@@ -525,7 +558,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             brace1_tkn: brack1.ctx,
             fields,
             methods: meths,
-            brace2_tkn: brack2.ctx,
+            brace2_tkn: brack2.ctx
         }.into())
     }
 }

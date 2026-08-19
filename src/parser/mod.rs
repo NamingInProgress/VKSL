@@ -4,12 +4,14 @@ use crate::token::tokenizer::Tokenizer;
 use crate::token::{TokCtx, Literal, Token, TokenType};
 use crate::{ast, token};
 use err::TokenExpectation::*;
+use crate::ast::Ast;
 
 pub mod err;
 pub mod expr;
 pub mod stmt;
 pub mod types;
 pub mod mods;
+pub mod punct;
 
 pub type Result<T> = core::result::Result<T, ParseErr>;
 pub type TokenRes = token::tokenizer::Result;
@@ -27,7 +29,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         }
     }
 
-    pub fn parse(mut self) -> Result<Vec<Stmt>> {
+    pub fn parse(mut self) -> Result<Ast> {
         while let Some(_) = self.peek_token()? {
             let s = self.parse_stmt()?;
             self.defs.push(s);
@@ -91,7 +93,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         };
 
         if name == expected {
-            return Ok(ast::Ident { val: name.clone(), tkn: token.ctx });
+            return Ok(ast::Ident { val: name.clone(), tkn: token.ctx, resolved_ident: None });
         }
 
         Err(self.token_err_with_hint(
@@ -105,7 +107,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         let token = self.expect_next(vec![Ident])?;
 
         match token.ty {
-            TokenType::Ident(name) => Ok(ast::Ident { val: name, tkn: token.ctx }),
+            TokenType::Ident(name) => Ok(ast::Ident { val: name, tkn: token.ctx, resolved_ident: None }),
             _ => unreachable!(),
         }
     }

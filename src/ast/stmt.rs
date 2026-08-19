@@ -1,9 +1,9 @@
 use crate::ast::expr::Expr;
 use crate::ast::ty::Type;
-use enum_dispatch::enum_dispatch;
 use crate::ast::Ident;
-use crate::parser::mods::{ResMods};
+use crate::parser::mods::ResMods;
 use crate::token::TokCtx;
+use enum_dispatch::enum_dispatch;
 
 #[enum_dispatch(Stmts)]
 #[allow(unused)]
@@ -18,6 +18,7 @@ pub enum Stmt {
     MethodDecl(MethodDeclStmt),
     VarDecl(VarDeclStmt),
     Return(ReturnStmt),
+    Yield(YieldStmt),
     Break(BreakStmt),
     Continue(ContinueStmt),
     Include(IncludeStmt),
@@ -29,7 +30,9 @@ pub enum Stmt {
     Uniform(UniformStmt),
     Struct(StructStmt),
     Block(BlockStmt),
-    Compound(CompoundStmt)
+    Compound(CompoundStmt),
+    Expr(ExprStmt),
+    Semi(SemiStmt),
 }
 
 #[derive(Clone, Debug)]
@@ -73,7 +76,7 @@ pub struct ForStmt {
 pub struct WhileStmt {
     pub while_tkn: TokCtx,
     pub l_paren: TokCtx,
-    pub cond: Option<Expr>,
+    pub cond: Expr,
     pub r_paren: TokCtx,
     pub block: Box<Stmt>,
 }
@@ -87,7 +90,7 @@ pub struct MethodDeclStmt {
     pub r_paren: TokCtx,
     pub arrow_tkn: Option<TokCtx>,
     pub return_type: Option<Type>,
-    pub block: BlockStmt,
+    pub block: Box<Stmt>,
 }
 
 #[derive(Clone, Debug)]
@@ -114,6 +117,13 @@ pub struct VarDeclStmt {
 pub struct ReturnStmt {
     pub return_tkn: TokCtx,
     pub expr: Option<Expr>,
+    pub semi_tkn: TokCtx,
+}
+
+#[derive(Clone, Debug)]
+pub struct YieldStmt {
+    pub yield_tkn: TokCtx,
+    pub expr: Expr,
     pub semi_tkn: TokCtx,
 }
 
@@ -212,4 +222,15 @@ pub struct BlockStmt {
 #[derive(Clone, Debug)]
 pub struct CompoundStmt {
     pub components: Vec<Stmt>
+}
+
+#[derive(Clone, Debug)]
+pub struct ExprStmt {
+    pub expr: Expr,
+    pub semi_tkn: TokCtx,
+}
+
+#[derive(Clone, Debug)]
+pub struct SemiStmt {
+    pub semi_tkn: TokCtx
 }

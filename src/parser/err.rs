@@ -3,6 +3,7 @@ use crate::token::{Operator, Token, TokCtx, TokenType};
 use mvutils::print::{Col, Fmt};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use itertools::Itertools;
 use crate::parser::mods::Modifier;
 
 #[derive(Clone, Debug)]
@@ -35,6 +36,7 @@ pub enum ParseErrType {
     UnexpectedToken(Token, Vec<TokenExpectation>),
     UnconstrainedUnexpectedToken(TokenType),
     NonBinaryCompatibleOperator(Operator),
+    NonUnaryCompatibleOperator(Operator),
     InternalErr,
     IllegalArrayDim,
     MissingType,
@@ -44,6 +46,11 @@ pub enum ParseErrType {
     IllegalModifier(Modifier),
     MissingModifier,
     InvalidExpression,
+    AssignOpNotAllowedAtExpressionHead,
+    IllegalTrailingSeparator,
+    UnknownType(String),
+    NotATypeSymbol(String),
+    UnknownIdent(String),
 }
 
 impl ParseErrType {
@@ -53,13 +60,26 @@ impl ParseErrType {
                 "invalid syntax".to_string()
             }
             ParseErrType::UnexpectedToken(found, expected) => {
-                format!("\texpected any of {expected:?}, but found {:?}", found.ty)
+                let available = expected.iter()
+                    .map(|te| {
+                        match te {
+                            TokenExpectation::Exact(e) => format!("`{e}`"),
+                            TokenExpectation::Ident => "identifier".to_string(),
+                            TokenExpectation::Lit => "number".to_string(),
+                        }
+                    })
+                    .join(", ");
+
+                format!("\texpected any of {available}, but found `{}`", found.ty)
             }
             ParseErrType::UnconstrainedUnexpectedToken(found) => {
-                format!("\tunexpected `{:?}`", found)
+                format!("\tunexpected `{}`", found)
             }
             ParseErrType::NonBinaryCompatibleOperator(o) => {
                 format!("operator {o:?} cannot be used in binary expressions!")
+            }
+            ParseErrType::NonUnaryCompatibleOperator(o) => {
+                format!("operator {o:?} cannot be used in unary expressions!")
             }
             ParseErrType::InternalErr => {
                 "internal error happened. This is usually unreachable. Please contact the vke team ASAP".to_owned()
@@ -88,6 +108,21 @@ impl ParseErrType {
             ParseErrType::InvalidExpression => {
                 "not a valid expression".to_string()
             }
+            ParseErrType::AssignOpNotAllowedAtExpressionHead => {
+                "assignment operators cannot be used inside expressions".to_string()
+            }
+            ParseErrType::IllegalTrailingSeparator => {
+                "a trailing separator is not allowed here!".to_string()
+            }
+            ParseErrType::UnknownType(st) => {
+                format!("unknown type name {st}")
+            }
+            ParseErrType::NotATypeSymbol(st) => {
+                format!("{st} is not a valid type symbol!")
+            }
+            ParseErrType::UnknownIdent(st) => {
+                format!("unknown identifier {st}")
+            }
         }
     }
 
@@ -98,7 +133,8 @@ impl ParseErrType {
             }
             ParseErrType::UnexpectedToken(_, _) => "illegal token".to_string(),
             ParseErrType::UnconstrainedUnexpectedToken(_) => "illegal token".to_string(),
-            ParseErrType::NonBinaryCompatibleOperator(o) => { format!("invalid use of {o:?}") }
+            ParseErrType::NonBinaryCompatibleOperator(o) => { format!("invalid use of {o}") }
+            ParseErrType::NonUnaryCompatibleOperator(o) => { format!("invalid use of {o}") }
             ParseErrType::InternalErr => "unrecoverable".to_string(),
             ParseErrType::IllegalArrayDim => "illegal array length".to_string(),
             ParseErrType::MissingType => "missing type annotation".to_string(),
@@ -108,6 +144,11 @@ impl ParseErrType {
             ParseErrType::IllegalModifier(md) => format!("illegal modifier `{md}`"),
             ParseErrType::MissingModifier => "missing required modifier".to_string(),
             ParseErrType::InvalidExpression => "invalid expression".to_string(),
+            ParseErrType::AssignOpNotAllowedAtExpressionHead => "illegal assignment operator at start of expression".to_string(),
+            ParseErrType::IllegalTrailingSeparator => "disallowed trailing separator".to_string(),
+            ParseErrType::UnknownType(st) => format!("unknown type {st}"),
+            ParseErrType::NotATypeSymbol(st) => format!("invalid type symbol {st}"),
+            ParseErrType::UnknownIdent(st) => format!("unknown identifier {st}"),
         }
     }
 }

@@ -1,27 +1,32 @@
+use crate::ast::expr::Expr;
 use crate::ast::stmt::StructStmt;
+use crate::ast::Ident;
+use crate::token::TokCtx;
+use itertools::Itertools;
 use mvutils_proc_macro::TryFromString;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::Ident;
-use crate::token::TokCtx;
+use crate::scope::SymbolId;
 
 #[derive(Clone, Debug)]
 pub enum Type {
     Primitive(PrimitiveType, TokCtx),
-    SingleType(String, TokCtx),
+    SingleType(SingleType),
     PathType(PathType),
     ArrayOf(ArrayType),
-    StructDef(Box<StructStmt>),
+    TupleOf(TupleType),
+    StructDef(StructType),
 }
 
 impl Display for Type {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let data = match self {
             Type::Primitive(ty, _) => ty.to_string(),
-            Type::SingleType(ty, _) => ty.clone(),
+            Type::SingleType(ty) => ty.name.clone(),
             Type::PathType(ty) => ty.to_string(),
             Type::ArrayOf(ty) => ty.to_string(),
-            Type::StructDef(_) => "}".to_string(),
+            Type::TupleOf(ty) => ty.to_string(),
+            Type::StructDef(st) => st.to_string(),
         };
 
         f.write_str(&data)
@@ -29,10 +34,33 @@ impl Display for Type {
 }
 
 #[derive(Clone, Debug)]
+pub struct SingleType {
+    pub name: String,
+    pub tkn: TokCtx,
+
+    pub resolved_name: Option<SymbolId>,
+}
+
+#[derive(Clone, Debug)]
 pub struct PathType {
     pub path_parts: Vec<Ident>,
     pub dot_tkns: Vec<TokCtx>,
     pub name: Ident,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructType {
+    pub inner: Box<StructStmt>,
+}
+
+impl Display for StructType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut data = String::new();
+        data.push('{');
+        data.push_str(&*self.inner.name.val);
+        data.push('}');
+        f.write_str(&data)
+    }
 }
 
 impl Display for PathType {
@@ -51,7 +79,7 @@ impl Display for PathType {
 pub struct ArrayType {
     pub component: Box<Type>,
     pub brack1_tkn: TokCtx,
-    pub dimension: Option<u32>,
+    pub dimension: Option<Box<Expr>>,
     pub brack2_tkn: TokCtx,
 }
 
@@ -59,10 +87,27 @@ impl Display for ArrayType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut data = self.component.to_string();
         data.push('[');
-        if let Some(dim) = self.dimension {
-            data.push_str(&format!("{dim}"));
+        if let Some(dim) = &self.dimension {
+            data.push_str(&format!("{dim:?}"));
         }
         data.push(']');
+        f.write_str(&data)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TupleType {
+    pub paren1_tok: TokCtx,
+    pub types: Vec<(Type, Option<TokCtx>)>,
+    pub paren2_tok: TokCtx,
+}
+
+impl Display for TupleType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let inner = self.types.iter()
+            .map(|t| format!("{t:?}"))
+            .join(", ");
+        let data = format!("({inner})");
         f.write_str(&data)
     }
 }

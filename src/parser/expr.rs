@@ -1,8 +1,8 @@
-use crate::ast::expr::{AccessExpr, BinExpr, Expr, FnCallExpr, IndexExpr, LitExpr, PostFixExpr, PreFixExpr, TernaryExpr, UnaryExpr, VarExpr};
+use crate::ast::expr::{AccessExpr, ArrayExpr, AssignExpr, BinExpr, BlockExpr, Expr, FnCallExpr, IndexExpr, LitExpr, NonuniformExpr, PostFixExpr, PreFixExpr, TernaryExpr, TupleExpr, UnaryExpr, VarExpr};
 use crate::{parser, Te, T};
 use crate::parser::err::ParseErrType;
 use crate::parser::Parser;
-use crate::token::{Operator, Token, TokenType};
+use crate::token::{Keyword, Operator, Token, TokenType};
 
 impl<I: Iterator<Item = char>> Parser<I> {
     pub fn parse_expr(&mut self) -> parser::Result<Expr> {
@@ -64,7 +64,11 @@ impl<I: Iterator<Item = char>> Parser<I> {
     //     FnCall(FnCallExpr), ident(params?)   --DONE
     //     Variable(VarExpr),  ident            --DONE
     //     Literal(LitExpr), lit                --DONE
+    //     Nu(NonUniExpr), nonuniform $parse    --DONE
     //     PreFix(PreFixExpr), -- || ++ $prim   --DONE
+    //     Tuple(TupleExpr), ($parse(,$parse)*) --DONE
+    //     Array(ArrayExpr), [$parse(,$parse)*] --DONE
+    //     Block(BlockExpr), {$stmt*}           --DONE
     //     Unnamed,             ($parse)        --DONE
 
     fn parse_primary_expression(&mut self) -> parser::Result<Expr> {
@@ -92,30 +96,24 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     expr: Box::new(expr),
                 })
             }
-            TokenType::LParen => {
+            TokenType::Keyword(Keyword::Nonuniform) => {
                 let expr = self.parse_expr()?;
-                self.expect_next(Te![')'])?;
-                expr
+                Expr::Nonuniform(NonuniformExpr {
+                    nonuniform_tkn: next.ctx,
+                    expr: Box::new(expr),
+                })
             }
             TokenType::Ident(name) => {
                 let ident = (name, next.ctx).into();
                 if let Ok(Token { ty: TokenType::LParen, .. }) = self.unwrap_peek() {
-                    let paren1 = self.unwrap_next()?;
-                    let mut args = Vec::new();
-                    while !matches!(self.unwrap_peek(), Ok(Token { ty: TokenType::RParen, .. })) {
-                        let arg = self.parse_expr()?;
-                        let comma = if let Some(Token { ty: T!(,), ctx }) = self.peek_token()? {
-                            self.unwrap_next()?;
-                            Some(ctx)
-                        } else { None };
-                        args.push((arg, comma));
-                    }
-                    let paren2 = self.expect_next(Te!(')'))?;
+                    let open_tkn = self.unwrap_next()?.ctx;
+                    let args = self.parse_punctuated(T![,], T![')'], true, Self::parse_expr).try_collect()?;
+                    let close_tkn = self.expect_next(Te!(')'))?.ctx;
                     Expr::FnCall(FnCallExpr {
                         ident,
-                        paren1_tkn: paren1.ctx,
+                        open_tkn,
                         args,
-                        paren2_tkn: paren2.ctx,
+                        close_tkn,
                     })
                 } else {
                     Expr::Variable(VarExpr {
@@ -123,13 +121,40 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     })
                 }
             }
-            TokenType::LBrace => {
-                // block stmt
-                todo!()
+            TokenType::LParen => {
+                let mut args = self.parse_punctuated(T![,], T![')'], true, Self::parse_expr).try_collect()?;
+                let close_tkn = self.expect_next(Te![')'])?.ctx;
+
+                if args.len() == 1 && args[0].1.is_none()  {
+                    args.pop().expect("vec has exactly 1 element").0
+                } else {
+                    Expr::Tuple(TupleExpr {
+                        open_tkn: next.ctx,
+                        args,
+                        close_tkn,
+                    })
+                }
             }
             TokenType::LBracket => {
-                // array decl
-                todo!()
+                let args = self.parse_punctuated(T![,], T![']'], true, Self::parse_expr).try_collect()?;
+                let close_tkn = self.expect_next(Te![']'])?.ctx;
+                Expr::Array(ArrayExpr {
+                    open_tkn: next.ctx,
+                    args,
+                    close_tkn,
+                })
+            }
+            TokenType::LBrace => {
+                let mut block = Vec::new();
+                while !matches!(self.unwrap_peek(), Ok(Token { ty: TokenType::RBrace, .. } )) {
+                    block.push(self.parse_stmt()?);
+                }
+                let close_tkn = self.expect_next(Te!['}'])?.ctx;
+                Expr::Block(BlockExpr {
+                    open_tkn: next.ctx,
+                    block,
+                    close_tkn,
+                })
             }
             c => {
                 let (err, hint) = self.deduce_failed_primary_expression_parse_error(c);
@@ -142,28 +167,27 @@ impl<I: Iterator<Item = char>> Parser<I> {
 
     fn deduce_failed_primary_expression_parse_error(&mut self, tok: TokenType) -> (ParseErrType, String) {
         match tok {
-            TokenType::Literal(_) | TokenType::LParen | TokenType::Ident(_) | TokenType::LBrace | TokenType::LBracket => unreachable!(),
+            TokenType::Literal(_) | TokenType::Ident(_) | TokenType::LParen | TokenType::LBrace | TokenType::LBracket => unreachable!(),
             TokenType::Operator(op) if matches!(op, Operator::Minus | Operator::Not | Operator::MinusMinus | Operator::PlusPlus) => unreachable!(),
-            TokenType::RParen => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::RParen), "consider trying to remove the erroneous `)`"),
-            TokenType::RBrace => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::RBrace), "consider trying to remove the erroneous `}`"),
-            TokenType::RBracket => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::RBracket), "consider trying to remove the erroneous `]`"),
-            TokenType::Comma => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Comma), "`,` is used to separate expressions, and thus requires and preceding valid expression\nconsider trying to remove the erroneous `,` or adding a valid expression before the `,`"),
-            TokenType::Semi => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Semi), "consider adding a valid expression before the `;`"),
-            TokenType::Colon => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Colon), "`:` cannot be used outside of tetrahedron operators, consider removing the `:` or wrapping in a tetrahedron operator\nif you already are inside a tetrahedron operator, consider adding a valid expression before the `:`"),
-            TokenType::Question => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Question), "`?` requires a preceding expression, consider adding a valid expression before the `?`"),
-            TokenType::Keyword(keyword) => {}
-            TokenType::Operator(op) => {}
-            TokenType::OperatorAssign(op) => {}
+            TokenType::RParen | TokenType::RBrace | TokenType::RBracket => (ParseErrType::UnconstrainedUnexpectedToken(tok.clone()), format!("consider trying to remove the erroneous `{tok}`")),
+            TokenType::Comma => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Comma), "`,` is used to separate expressions, and thus requires and preceding valid expression\nconsider trying to remove the erroneous `,` or adding a valid expression before the `,`".to_string()),
+            TokenType::Semi => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Semi), "consider adding a valid expression before the `;`".to_string()),
+            TokenType::Colon => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Colon), "`:` cannot be used outside of tetrahedron operators, consider removing the `:` or wrapping in a tetrahedron operator\nif you already are inside a tetrahedron operator, consider adding a valid expression before the `:`".to_string()),
+            TokenType::Question => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Question), "`?` requires a preceding expression, consider adding a valid expression before the `?`".to_string()),
+            TokenType::Operator(op) => (ParseErrType::NonUnaryCompatibleOperator(op), format!("consider removing `{op}` or adding an expression before it to transform into a binary expression")),
+            TokenType::OperatorAssign(op) => (ParseErrType::AssignOpNotAllowedAtExpressionHead, format!("consider transforming into a non assignment expression: `{op}`, or removing the erroneous `{op}`")),
+            TokenType::Keyword(_keyword) => {
+                todo!()
+            }
+            //_ => (ParseErrType::InvalidExpression, "consider using different tokens to create a valid expression! Read the documentation for details. Maybe try using a variable name?".to_string())
         }
-
-        // default
-        (ParseErrType::InvalidExpression, "consider using different tokens to create a valid expression! Read the documentation for details. Maybe try using a variable name?".to_string())
     }
 
     //     Ternary(TernaryExpr), $secon ? $parse : $parse   --DONE
     //     Access(AccessExpr),  $secon . (ident.)*          --DONE
     //     PostFix(PostFixExpr), $secon ++ || --            --DONE
     //     Index(IndexExpr),  $secon[$parse]                --DONE
+    //     Assign(AssignExpr), $second = $parse             --DONE
 
     fn parse_secondary_expression(&mut self, primary: Expr) -> parser::Result<Expr> {
         match self.unwrap_peek() {
@@ -195,6 +219,15 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     op,
                     op_tkn: ctx,
                     expr: Box::new(primary),
+                }))
+            }
+            Ok(Token { ty: TokenType::Operator(Operator::Assign), ctx }) => {
+                self.skip();
+                let value = self.parse_expr()?;
+                Ok(Expr::Assign(AssignExpr {
+                    lhs: Box::new(primary),
+                    eq_tkn: ctx,
+                    rhs: Box::new(value),
                 }))
             }
             Ok(Token { ty: TokenType::LBracket, ctx }) => {

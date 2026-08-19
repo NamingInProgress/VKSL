@@ -79,6 +79,7 @@ The following keywords are reserved:
 | while          | Defines a while loop                                                        |
 | for            | Defines a for loop                                                          |
 | return         | Returns from a function                                                     |
+| yield          | Returns a value from an annonymous block statement                          |
 | let            | Declares a mutable variable                                                 |
 | const          | Declares an immutable variable                                              |
 | include        | Includes a different module                                                 |
@@ -410,7 +411,7 @@ array_type ::= type "[" digits? "]"
 
 The number of elements in an array is called its length.
 
-An array element is accessed using the indexing operation. The index shall evaluate to a non-negative integer value.
+An array element is accessed using the indexing operation (`arr[index]`). The index shall evaluate to a non-negative integer value.
 
 Array indices are zero-indexed. For an array of length `N`, valid indices range from `0` to `N-1`.
 
@@ -458,16 +459,14 @@ A structure may contain other structures.
 A structure shall not be empty. To be valid, a structure requires one or more members.
 
 #### 4.5.2 Methods in Structures
-A structure may contain method declarations. A method is a function associated with a structure type and may access the 
-members of the structure through the `this` keyword.
-
-Within a method, `this` refers to the instance on which the method was invoked.
+A structure may contain method declarations. A method is a function associated with a structure type and may access 
+the members of the structure directly by their identifiers or via the `this` keyword.
 
 Method declaration follows the same convention as specified in Section 7.3
 
-If the instance is not declared as `const`, members of the instance may be modified through `this`.
+If the instance is not declared as `const`, members of the instance may be modified directly or via `this`.
 
-If the instance is declared as `const`, modification of its members through `this` is not permitted.
+If the instance is declared as `const`, modification of its members either directly or via `this` is not permitted.
 
 The `this` expression may be passed as an argument to functions and methods.
 
@@ -488,7 +487,36 @@ fn main() {
 }
 ```
 
-### 4.6 Resource Types
+### 4.6 Tuple Type
+A tuple is an ordered collection of a fixed number of values, where each element may have a different type.
+
+The type of a tuple is determined by the types and order of its elements. For example, `(vec3, mat4)` and `(mat4, vec3)` are distinct types.
+
+A tuple type is specified by a comma-separated list of types enclosed in
+parentheses.
+
+Definition:
+```text
+tuple_type ::= "(" type_list ")"
+type_list ::= type ("," type)*
+```
+
+A tuple value is constructed using a comma-separated list of expressions enclosed in parentheses.
+
+A tuple element is accessed using the indexing operation. The index shall be
+a non-negative integer constant less than the number of elements in the tuple.
+
+Example:
+```
+let position = ...;
+let projection_matrix = ...;
+let pos_proj: (vec3, mat4) = (position, projection_matrix);
+
+position = pos_proj[0];
+pos_proj[0] = position
+```
+
+### 4.7 Resource Types
 Resource types represent resources that are provided to a shader by the graphics API. Unlike ordinary value types, resource types represent access
 to externally provided GPU resources.
 
@@ -498,7 +526,7 @@ Resource types are opaque and cannot be constructed or modified as ordinary valu
 
 If no packing type is specified, std140 shall be used for uniform buffers and std430 shall be used for shader storage buffers.
 
-#### 4.6.1 Sampled Images
+#### 4.7.1 Sampled Images
 The `image1D`, `image2D`, `image3D`, and `imageCube` types represent image resources.
 
 The following sampled image types are provided:
@@ -510,7 +538,7 @@ The following sampled image types are provided:
 | `image3D`   | Three-dimensional sampled image |
 | `imageCube` | Cube sampled image              |
 
-#### 4.6.2 Combined Image Samplers
+#### 4.7.2 Combined Image Samplers
 A combined image sampler type represents a sampled image together with a sampler.
 
 The following combined image sampler types are provided:
@@ -522,7 +550,7 @@ The following combined image sampler types are provided:
 | `sampler3D`   | Three-dimensional combined image sampler |
 | `samplerCube` | Cube combined image sampler              |
 
-### 4.7 Resource Declarations
+### 4.8 Resource Declarations
 A resource declaration declares a resource that is provided to a shader by the graphics API.
 
 The `uniform` keyword indicates that the resource is provided by the shader environment rather than created by the shader.
@@ -541,7 +569,7 @@ descriptor_location ::= "set" "=" integer_literal "binding" "=" integer_literal
 packing_type ::= ("std140" | "std430")
 ```
 
-#### 4.7.1 Uniform Buffers
+#### 4.8.1 Uniform Buffers
 A uniform buffer provides read-only access to a block of uniformly laid-out data.
 
 The struct layout of a uniform buffer block is subject to memory alignment rules.
@@ -574,7 +602,7 @@ and the resource is equivalent to:
 uniform set = 0 binding = 0 Camera camera;
 ```
 
-#### 4.7.2 Shader Storage Buffers
+#### 4.8.2 Shader Storage Buffers
 A shader storage buffer provides access to a block of GPU data.
 
 The struct layout of a shader storage buffer block is subject to memory alignment rules.
@@ -596,7 +624,7 @@ ssbo_decl ::= "uniform" descriptor_location packing_type? access_modifier? "buff
 access_modifier ::= "readonly" | "writeonly"
 ```
 
-#### 4.7.3 Descriptor Locations
+#### 4.8.3 Descriptor Locations
 A uniform declaration shall specify a descriptor set and binding using the `set` and `binding` specifiers.
 
 The value following `set` specifies the descriptor set number.
@@ -607,14 +635,6 @@ Both values shall be non-negative integer constants.
 The pair `(set, binding)` uniquely identifies a descriptor within a shader interface. Two resource declarations shall not specify the same descriptor location.
 
 TODO:
-4. Types
-   4.1 Scalar Types
-   4.2 Vector Types
-   4.3 Matrix Types
-   4.4 Arrays
-   4.5 Structures
-   4.6 Resource Types
-
 5. Expressions
    5.1 Operators
    5.2 Conversions
