@@ -67,7 +67,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
     //     PreFix(PreFixExpr), -- || ++ $prim   --DONE
     //     Unnamed,             ($parse)        --DONE
 
-    pub fn parse_primary_expression(&mut self) -> parser::Result<Expr> {
+    fn parse_primary_expression(&mut self) -> parser::Result<Expr> {
         let next = self.unwrap_next()?;
         let primary = match next.ty {
             TokenType::Literal(lit) => {
@@ -123,9 +123,41 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     })
                 }
             }
-            _ => return Err(self.token_err_with_hint(ParseErrType::InvalidExpression, next.ctx, "consider using different tokens to create a valid expression! Read the documentation for details. Maybe try using a variable name?".to_string())),
+            TokenType::LBrace => {
+                // block stmt
+                todo!()
+            }
+            TokenType::LBracket => {
+                // array decl
+                todo!()
+            }
+            c => {
+                let (err, hint) = self.deduce_failed_primary_expression_parse_error(c);
+
+                return Err(self.token_err_with_hint(err, next.ctx, hint));
+            }
         };
         self.parse_secondary_expression(primary)
+    }
+
+    fn deduce_failed_primary_expression_parse_error(&mut self, tok: TokenType) -> (ParseErrType, String) {
+        match tok {
+            TokenType::Literal(_) | TokenType::LParen | TokenType::Ident(_) | TokenType::LBrace | TokenType::LBracket => unreachable!(),
+            TokenType::Operator(op) if matches!(op, Operator::Minus | Operator::Not | Operator::MinusMinus | Operator::PlusPlus) => unreachable!(),
+            TokenType::RParen => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::RParen), "consider trying to remove the erroneous `)`"),
+            TokenType::RBrace => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::RBrace), "consider trying to remove the erroneous `}`"),
+            TokenType::RBracket => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::RBracket), "consider trying to remove the erroneous `]`"),
+            TokenType::Comma => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Comma), "`,` is used to separate expressions, and thus requires and preceding valid expression\nconsider trying to remove the erroneous `,` or adding a valid expression before the `,`"),
+            TokenType::Semi => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Semi), "consider adding a valid expression before the `;`"),
+            TokenType::Colon => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Colon), "`:` cannot be used outside of tetrahedron operators, consider removing the `:` or wrapping in a tetrahedron operator\nif you already are inside a tetrahedron operator, consider adding a valid expression before the `:`"),
+            TokenType::Question => (ParseErrType::UnconstrainedUnexpectedToken(TokenType::Question), "`?` requires a preceding expression, consider adding a valid expression before the `?`"),
+            TokenType::Keyword(keyword) => {}
+            TokenType::Operator(op) => {}
+            TokenType::OperatorAssign(op) => {}
+        }
+
+        // default
+        (ParseErrType::InvalidExpression, "consider using different tokens to create a valid expression! Read the documentation for details. Maybe try using a variable name?".to_string())
     }
 
     //     Ternary(TernaryExpr), $secon ? $parse : $parse   --DONE
@@ -133,7 +165,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
     //     PostFix(PostFixExpr), $secon ++ || --            --DONE
     //     Index(IndexExpr),  $secon[$parse]                --DONE
 
-    pub fn parse_secondary_expression(&mut self, primary: Expr) -> parser::Result<Expr> {
+    fn parse_secondary_expression(&mut self, primary: Expr) -> parser::Result<Expr> {
         match self.unwrap_peek() {
             Ok(Token { ty: TokenType::Question, ctx }) => {
                 self.skip();

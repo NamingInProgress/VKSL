@@ -33,6 +33,7 @@ impl Display for ParseErr {
 pub enum ParseErrType {
     TokenizerErr(TokenErr),
     UnexpectedToken(Token, Vec<TokenExpectation>),
+    UnconstrainedUnexpectedToken(TokenType),
     NonBinaryCompatibleOperator(Operator),
     InternalErr,
     IllegalArrayDim,
@@ -53,6 +54,9 @@ impl ParseErrType {
             }
             ParseErrType::UnexpectedToken(found, expected) => {
                 format!("\texpected any of {expected:?}, but found {:?}", found.ty)
+            }
+            ParseErrType::UnconstrainedUnexpectedToken(found) => {
+                format!("\tunexpected `{:?}`", found)
             }
             ParseErrType::NonBinaryCompatibleOperator(o) => {
                 format!("operator {o:?} cannot be used in binary expressions!")
@@ -93,9 +97,8 @@ impl ParseErrType {
                 format!("{e:?}")
             }
             ParseErrType::UnexpectedToken(_, _) => "illegal token".to_string(),
-            ParseErrType::NonBinaryCompatibleOperator(o) => {
-                format!("invalid use of {o:?}")
-            }
+            ParseErrType::UnconstrainedUnexpectedToken(_) => "illegal token".to_string(),
+            ParseErrType::NonBinaryCompatibleOperator(o) => { format!("invalid use of {o:?}") }
             ParseErrType::InternalErr => "unrecoverable".to_string(),
             ParseErrType::IllegalArrayDim => "illegal array length".to_string(),
             ParseErrType::MissingType => "missing type annotation".to_string(),
