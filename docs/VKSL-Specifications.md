@@ -103,6 +103,7 @@ The following keywords are reserved:
 | writeonly      | Marks a buffer declared with `buffer` as write-only                         |
 | break          | Exits the current loop                                                      |
 | continue       | Skips the current iteration in a loop                                       |
+| as             | Interprets the preceeding value as the type specified after the keyword.    |
 
 ### 3.5 Built-in Variables
 VKSL defines a set of built-in variables that provide access to functionality or resources supplied by the shader
@@ -423,6 +424,8 @@ A structure is declared using the `struct` keyword.
 The identifier following the `struct` keyword introduces a structure type with the specified name.
 
 A structure type may be constructed by invoking its type name as a constructor. Constructor arguments correspond to the structure's members in declaration order.
+Alternatively, a structure may be constructed by invoking its type name followed by curly braces. Arguments may be provided in any order by providing 
+the structure's arguments name, followed by a colon and the value.
 
 Example:
 ```
@@ -496,14 +499,14 @@ A tuple type is specified by a comma-separated list of types enclosed in
 parentheses.
 
 Definition:
-```text
+```
 tuple_type ::= "(" type_list ")"
 type_list ::= type ("," type)*
 ```
 
 A tuple value is constructed using a comma-separated list of expressions enclosed in parentheses.
 
-A tuple element is accessed using the indexing operation. The index shall be
+A tuple element is accessed using the tuple indexing operation. The index shall be
 a non-negative integer constant less than the number of elements in the tuple.
 
 Example:
@@ -512,8 +515,8 @@ let position = ...;
 let projection_matrix = ...;
 let pos_proj: (vec3, mat4) = (position, projection_matrix);
 
-position = pos_proj[0];
-pos_proj[0] = position
+position = pos_proj.0;
+pos_proj.0 = position
 ```
 
 ### 4.7 Resource Types
@@ -581,10 +584,10 @@ ubo_decl ::= "uniform" descriptor_location packing_type? identifier: type_specif
 
 Example:
 ```
-uniform set = 0 binding = 0 Camera {
+uniform set = 0 binding = 0 camera: struct Camera {
     projection, view: mat4;
     position: vec3;
-} camera;
+};
 ```
 
 The declaration above defines a structure type named Camera and a uniform
@@ -599,7 +602,7 @@ struct Camera {
 ```
 and the resource is equivalent to:
 ```
-uniform set = 0 binding = 0 Camera camera;
+uniform set = 0 binding = 0 camera: Camera;
 ```
 
 #### 4.8.2 Shader Storage Buffers
@@ -634,12 +637,93 @@ Both values shall be non-negative integer constants.
 
 The pair `(set, binding)` uniquely identifies a descriptor within a shader interface. Two resource declarations shall not specify the same descriptor location.
 
+## 5. Expressions
+An expression is a sequence of one or more operands and operators that evaluates to a value.
+
+Expressions may produce values of any type supported by VKSL. An expression may also have side effects, such as modifying the value of an object.
+
+Definition:
+```
+expression ::= primary_expression |
+```
+### 5.1 Primary Expressions 
+A primary expression, is an expression which does not require an operator to produce its value.
+
+Example:
+```
+52;
+true
+foo
+(foo)
+```
+
+Definition:
+```
+primary_expression ::= identifier | literal | parenthesized_expression | tuple_expression
+```
+
+#### 5.1.1 Identifiers
+An identifier expression refers to a value associated with an identifier in the current scope.
+
+The identifier shall refer to a declared variable, constant, function, resource, or other entity permitted in an expression context.
+
+The type of an identifier expression is the type of the entity to which the identifier refers.
+
+If an identifier does not refer to a valid declaration in the current scope or any enclosing scope, the program shall be rejected with a compilation error.
+
+Example:
+```
+let position: vec3;
+let scale: f32;
+
+position; // expression of type vec3
+scale;    // expression of type f32
+```
+
+#### 5.1.2 Literals
+A literal expression represents the constant value specified by the literal. The syntax and types of literals are defined in Section 3.6
+
+#### 5.1.3 Parenthesized Expressions
+A parenthesized expression is an expression enclosed in parentheses.
+
+A parenthesized expression evaluates to the value enclosed by the parentheses and has the same type as the enclosed expression.
+
+Parentheses may be used to explicitly specify the order in which expressions are evaluated, overriding the precedence and associativity operators.
+
+Example:
+```
+let a = 2 + 3 * 4;      // 14
+let b = (2 + 3) * 4;    // 20
+
+let c = (position);
+let d = ((position + offset));
+```
+
+Definition:
+```
+parenthesized_expression ::= "(" expression ")"
+```
+### 5.2 Operators
+
 TODO:
 5. Expressions
-   5.1 Operators
-   5.2 Conversions
-   5.3 Function Calls
-   5.4 Constructors
+   5.1 Primary Expressions
+       5.1.1 Identifiers
+       5.1.2 Literals
+       5.1.3 Parenthesized Expressions
+   5.2 Operators
+       5.2.1 Unary Operators
+       5.2.2 Arithmetic Operators
+       5.2.3 Comparison Operators
+       5.2.4 Logical Operators
+       5.2.5 Bitwise Operators
+   5.3 Member Access
+   5.4 Indexing
+   5.5 Function Calls
+   5.6 Constructors
+   5.7 Assignment
+   5.8 Operator Precedence
+   5.9 Implicit Conversions
 
 6. Statements
    6.1 Blocks

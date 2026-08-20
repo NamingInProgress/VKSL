@@ -2,25 +2,40 @@ use crate::token::tokenizer::Tokenizer;
 use mvutils::utils::UnwrapDisplay;
 use parser::Parser;
 use std::path::Path;
-use crate::scope::ScopeResolver;
+use crate::scope::{name_res, struct_res};
 
-pub mod ast;
 pub mod parser;
 pub mod token;
 pub mod scope;
 
-fn main() {
-    // for token in Tokenizer::from_str(include_str!("../simple.vksl").to_string()) {
-    //     println!("{token:?}")
-    // }
+#[macro_export]
+macro_rules! critical_error {
+    () => {
+        panic!("critical error: {}:{}", file!(), line!())
+    };
+}
 
-    let source = include_str!("../simple.vksl").chars();
-    let tokens = Tokenizer::new(source, Some(Path::new("simple.vksl").into()));
-    let parser = Parser::new(tokens);
-    let result = parser.parse().unwrapd();
-    let scope_thingy = ScopeResolver::new(result);
-    let result = scope_thingy.parse();
-    for stmt in result.unwrapd() {
-        println!("{stmt:#?}");
+fn main() {
+    fn parse() -> parser::Result<()> {
+        // for token in Tokenizer::from_str(include_str!("../simple.vksl").to_string()) {
+        //     println!("{token:?}")
+        // }
+    
+        let source = include_str!("../simple.vksl").chars();
+        let tokens = Tokenizer::new(source, Some(Path::new("simple.vksl").into()));
+        let parser = Parser::new(tokens);
+        let mut result = parser.parse()?;
+        let global_scope = struct_res::handle_ast(&mut result)?;
+        let result = name_res::conv_ast(result, global_scope.clone())?;
+        for stmt in result {
+            println!("{stmt:#?}");
+        }
+    
+        println!("=======");
+        let g = global_scope.borrow();
+        println!("{:#?}", g.symbols);
+    
+        Ok(())
     }
+    parse().unwrapd();
 }

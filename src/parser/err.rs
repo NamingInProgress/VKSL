@@ -4,6 +4,7 @@ use mvutils::print::{Col, Fmt};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use itertools::Itertools;
+use crate::parser::ast::ty::PrimitiveType;
 use crate::parser::mods::Modifier;
 
 #[derive(Clone, Debug)]
@@ -51,6 +52,9 @@ pub enum ParseErrType {
     UnknownType(String),
     NotATypeSymbol(String),
     UnknownIdent(String),
+    IllegalTupleAccessLiteral(PrimitiveType),
+    DuplicateStruct(String),
+    DuplicateFn(String),
 }
 
 impl ParseErrType {
@@ -123,6 +127,15 @@ impl ParseErrType {
             ParseErrType::UnknownIdent(st) => {
                 format!("unknown identifier {st}")
             }
+            ParseErrType::IllegalTupleAccessLiteral(ty) => {
+                format!("{ty} cannot be used to index literals")
+            }
+            ParseErrType::DuplicateStruct(ty) => {
+                format!("the struct `{ty}` has been encountered at multiple times!")
+            }
+            ParseErrType::DuplicateFn(f) => {
+                format!("the function `{f}` has been encountered at multiple times!")
+            }
         }
     }
 
@@ -149,6 +162,9 @@ impl ParseErrType {
             ParseErrType::UnknownType(st) => format!("unknown type {st}"),
             ParseErrType::NotATypeSymbol(st) => format!("invalid type symbol {st}"),
             ParseErrType::UnknownIdent(st) => format!("unknown identifier {st}"),
+            ParseErrType::IllegalTupleAccessLiteral(_) => "illegal tuple access".to_string(),
+            ParseErrType::DuplicateStruct(_) => "duplicate struct".to_string(),
+            ParseErrType::DuplicateFn(_) => "duplicate function".to_string()
         }
     }
 }

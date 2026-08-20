@@ -1,12 +1,12 @@
-use crate::ast::expr::Expr;
-use crate::ast::stmt::StructStmt;
-use crate::ast::Ident;
+use crate::parser::ast::Ident;
+use crate::parser::ast::expr::Expr;
+use crate::parser::ast::stmt::StructStmt;
+use crate::scope::{SymbolId, SymbolName};
 use crate::token::TokCtx;
 use itertools::Itertools;
 use mvutils_proc_macro::TryFromString;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::scope::SymbolId;
 
 #[derive(Clone, Debug)]
 pub enum Type {
@@ -37,8 +37,16 @@ impl Display for Type {
 pub struct SingleType {
     pub name: String,
     pub tkn: TokCtx,
+}
 
-    pub resolved_name: Option<SymbolId>,
+impl SymbolName for SingleType {
+    fn get_name(&self) -> &String {
+        &self.name
+    }
+
+    fn get_error_token(&self) -> TokCtx {
+        self.tkn.clone()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -112,7 +120,7 @@ impl Display for TupleType {
     }
 }
 
-#[derive(Copy, Clone, Debug, TryFromString)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromString)]
 pub enum PrimitiveType {
     #[casing(Lower)]
     F32,

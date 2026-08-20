@@ -1,12 +1,15 @@
+use crate::token::TokCtx;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
-use crate::ast::stmt::Stmt;
-use crate::scope::SymbolId;
-use crate::token::TokCtx;
 
 pub mod expr;
 pub mod stmt;
 pub mod ty;
+
+pub use expr::*;
+pub use stmt::*;
+pub use ty::*;
+use crate::scope::SymbolName;
 
 pub type Ast = Vec<Stmt>;
 
@@ -14,7 +17,6 @@ pub type Ast = Vec<Stmt>;
 pub struct Ident {
     pub val: String,
     pub tkn: TokCtx,
-    pub resolved_ident: Option<SymbolId>,
 }
 
 impl Display for Ident {
@@ -36,7 +38,16 @@ impl From<(String, TokCtx)> for Ident {
         Self {
             val: ty.0,
             tkn: ty.1,
-            resolved_ident: None
         }
+    }
+}
+
+impl SymbolName for Ident {
+    fn get_name(&self) -> &String {
+        &self.val
+    }
+
+    fn get_error_token(&self) -> TokCtx {
+        self.tkn.clone()
     }
 }

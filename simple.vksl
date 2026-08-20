@@ -1,8 +1,11 @@
-let a: A;
-{
-    let b = a;
+let a = 0;
+let b = a as uint;
+
+struct B {
+    a: uint;
 }
-//b = 6;
-struct A {
-    proj: mat4;
-}
+
+let c = B(10);
+let d = B {
+    a: 10u,
+};

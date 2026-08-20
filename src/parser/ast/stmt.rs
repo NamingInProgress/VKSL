@@ -1,9 +1,10 @@
-use crate::ast::expr::Expr;
-use crate::ast::ty::Type;
-use crate::ast::Ident;
+use crate::parser::ast::expr::Expr;
+use crate::parser::ast::ty::Type;
+use crate::parser::ast::Ident;
 use crate::parser::mods::ResMods;
 use crate::token::TokCtx;
 use enum_dispatch::enum_dispatch;
+use crate::scope::{SharedScope, SymbolId};
 
 #[enum_dispatch(Stmts)]
 #[allow(unused)]
@@ -43,10 +44,14 @@ pub enum UniformType {
 }
 
 #[derive(Clone, Debug)]
-pub struct BreakStmt {}
+pub struct BreakStmt {
+    pub break_tkn: TokCtx
+}
 
 #[derive(Clone, Debug)]
-pub struct ContinueStmt {}
+pub struct ContinueStmt {
+    pub continue_tkn: TokCtx
+}
 
 #[derive(Clone, Debug)]
 pub struct IfStmt {
@@ -70,6 +75,7 @@ pub struct ForStmt {
     pub after_run: Option<Expr>,
     pub r_paren: TokCtx,
     pub block: Box<Stmt>,
+    pub fut_scope: Option<SharedScope>
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +97,9 @@ pub struct MethodDeclStmt {
     pub arrow_tkn: Option<TokCtx>,
     pub return_type: Option<Type>,
     pub block: Box<Stmt>,
+
+    pub symbol_id: Option<SymbolId>,
+    pub fut_scope: Option<SharedScope>
 }
 
 #[derive(Clone, Debug)]
@@ -145,6 +154,7 @@ pub struct ExtensionStmt {
 pub struct InputStmt {
     pub input_tkn: TokCtx,
     pub ty: Type,
+    pub colon_tkn: TokCtx,
     pub name: Ident,
     pub mods: ResMods,
     pub semi_tkn: TokCtx,
@@ -154,6 +164,7 @@ pub struct InputStmt {
 pub struct OutputStmt {
     pub output_tkn: TokCtx,
     pub ty: Type,
+    pub colon_tkn: TokCtx,
     pub name: Ident,
     pub semi_tkn: TokCtx,
 }
@@ -162,6 +173,7 @@ pub struct OutputStmt {
 pub struct ProvideStmt {
     pub provide_tkn: TokCtx,
     pub ty: Type,
+    pub colon_tkn: TokCtx,
     pub name: Ident,
     pub mods: ResMods,
     pub semi_tkn: TokCtx,
@@ -171,6 +183,7 @@ pub struct ProvideStmt {
 pub struct PushConstantsStmt {
     pub pc_tkn: TokCtx,
     pub name: Ident,
+    pub colon_tkn: TokCtx,
     pub ty: Type,
     pub semi_tkn: TokCtx,
 }
@@ -179,6 +192,7 @@ pub struct PushConstantsStmt {
 pub struct UniformStmt {
     pub uniform_tkn: TokCtx,
     pub name: Ident,
+    pub colon_tkn: TokCtx,
     pub ty: Type,
     
     pub set_tkn: TokCtx,
@@ -197,11 +211,15 @@ pub struct UniformStmt {
 
 #[derive(Clone, Debug)]
 pub struct StructStmt {
+    pub struct_tkn: TokCtx,
     pub name: Ident,
     pub brace1_tkn: TokCtx,
     pub fields: Vec<StructField>,
     pub methods: Vec<MethodDeclStmt>,
     pub brace2_tkn: TokCtx,
+
+    pub symbol_id: Option<SymbolId>,
+    pub fut_scope: Option<SharedScope>
 }
 
 #[derive(Clone, Debug)]
@@ -217,6 +235,7 @@ pub struct BlockStmt {
     pub l_brace: TokCtx,
     pub stmts: Vec<Stmt>,
     pub r_brace: TokCtx,
+    pub fut_scope: Option<SharedScope>
 }
 
 #[derive(Clone, Debug)]

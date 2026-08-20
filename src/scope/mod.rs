@@ -1,52 +1,163 @@
-use crate::ast::expr::Expr;
-use crate::ast::stmt::{MethodDeclStmt, Stmt, StructStmt};
-use crate::ast::ty::Type;
-use crate::ast::{Ast, Ident};
-use crate::parser;
-use std::cell::RefCell;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::{iter, mem};
-use std::ops::DerefMut;
-use std::rc::Rc;
-use mvutils::enum_val;
-use mvutils::utils::IncDec;
-use crate::parser::err::{ParseErr, ParseErrType};
+pub mod old;
+pub mod ast;
+pub mod name_res;
+pub mod struct_res;
 
-#[derive(Clone, Debug)]
-pub struct Scope {
-    pub parent: Option<SharedScope>,
-    pub symbols: HashMap<String, Symbol>
+use crate::parser;
+use crate::parser::ast::UniformType;
+use crate::parser::err::{ParseErr, ParseErrType};
+use crate::parser::mods::ResMods;
+use crate::scope::ast::expr::Expr;
+use crate::scope::ast::ty::Type;
+use crate::scope::ast::Ident;
+use crate::token::TokCtx;
+use std::cell::{Ref, RefCell};
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
+use itertools::Itertools;
+
+pub type SharedScope = Rc<RefCell<ResolvedScope>>;
+pub type SharedSymbol = Rc<RefCell<Symbol>>;
+pub type SymbolTable = Rc<RefCell<HashMap<SymbolId, SharedSymbol>>>;
+
+const COUNTER_ID: &str = "SymbolId";
+
+#[derive(Clone)]
+pub struct ResolvedScope {
+    parent: Option<SharedScope>,
+    pub symbols: SymbolTable,
+    by_name: HashMap<String, SymbolId>,
 }
 
-impl Scope {
-    pub fn new(parent: Option<SharedScope>) -> SharedScope {
+impl ResolvedScope {
+    pub fn global() -> SharedScope {
         Rc::new(RefCell::new(Self {
-            parent,
-            symbols: HashMap::new()
+            parent: None,
+            symbols: Rc::new(RefCell::new(HashMap::new())),
+            by_name: HashMap::new(),
         }))
     }
 
-    pub fn lookup_sym(&self, str: &String) -> Option<&Symbol> {
-        let sym = self.symbols.get(str);
-        match sym {
-            None => {
-                match &self.parent {
-                    None => None,
-                    Some(parent) => {
-                        let guard = parent.borrow();
-                        guard.lookup_sym(str).map(|sym| {
-                            unsafe { mem::transmute::<&Symbol, &'static Symbol>(sym) }
-                        })
-                    }
+    pub fn with_parent(parent: SharedScope) -> SharedScope {
+        let symbols = parent.borrow().symbols.clone();
+        Rc::new(RefCell::new(Self {
+            parent: Some(parent),
+            symbols,
+            by_name: HashMap::new(),
+        }))
+    }
+}
+
+impl Debug for ResolvedScope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str("<scope>")
+    }
+}
+
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub enum SymbolSpecies {
+    Ident,
+    Type,
+    Fn
+}
+
+impl ResolvedScope {
+    pub fn insert_symbol(&self, id: SymbolId, symbol: SharedSymbol) {
+        let mut guard = self.symbols.borrow_mut();
+        guard.insert(id, symbol);
+    }
+
+    fn collect_all(&self, species: SymbolSpecies) -> Vec<String> {
+        let base = self.by_name.iter()
+            .filter_map(|(k, v)| {
+                let sym = self.get_symbol(*v);
+                match &*sym.borrow() {
+                    Symbol::Variable(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    Symbol::Function(_) if species == SymbolSpecies::Fn => Some(k.clone()),
+                    Symbol::Struct(_) if species == SymbolSpecies::Type => Some(k.clone()),
+                    Symbol::Field(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    Symbol::Uniform(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    Symbol::PushConstant(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    Symbol::Input(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    Symbol::Output(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    Symbol::Provide(_) if species == SymbolSpecies::Ident => Some(k.clone()),
+                    _ => None
                 }
-            }
-            Some(sym) => Some(sym)
+            });
+        if let Some(parent) = &self.parent {
+            let guard = parent.borrow();
+            base.chain(guard.collect_all(species)).collect_vec()
+        } else {
+            base.collect_vec()
         }
     }
 
-    pub fn lookup_id(&self, str: &String) -> Option<SymbolId> {
-        self.lookup_sym(str).map(|sym| sym.get_id())
+    fn get_score(target: &str, test: &str) -> u32 {
+        let mut score = 0;
+        let mut c1i = target.chars();
+        let mut c2i = test.chars();
+        while let Some(c1) = c1i.next() && let Some(c2) = c2i.next() {
+            score += (c1 as i32 - c2 as i32).abs() as u32;
+        }
+
+        while let Some(_) = c1i.next() {
+            score += 26;
+        }
+        while let Some(_) = c2i.next() {
+            score += 26;
+        }
+
+        score
+    }
+
+    fn find_closest_match(&self, name: &str, species: SymbolSpecies) -> Option<String> {
+        self.collect_all(species)
+            .into_iter()
+            .min_by_key(|s| Self::get_score(name, s))
+    }
+
+    pub fn resolve_symbol_id(&self, name: &impl SymbolName, species: SymbolSpecies) -> parser::Result<SymbolId> {
+        let s = name.get_name();
+        match self.by_name.get(s) {
+            None => {
+                if let Some(parent) = &self.parent {
+                    let parent_guard = parent.borrow();
+                    let id = parent_guard.resolve_symbol_id(name, species)?;
+                    Ok(id)
+                } else {
+                    let mut hint = self.find_closest_match(s, species);
+
+                    let err_kind = if species == SymbolSpecies::Type {
+                        ParseErrType::UnknownType(s.clone())
+                    } else {
+                        ParseErrType::UnknownIdent(s.clone())
+                    };
+
+                    hint = hint.map(|m| format!("did you perhaps mean `{m}`?"));
+
+                    Err(ParseErr {
+                        ty: err_kind,
+                        ctx: name.get_error_token(),
+                        tail: "".to_string(),
+                        hint,
+                    })
+                }
+            }
+            Some(id) => {
+                Ok(*id)
+            }
+        }
+    }
+
+    pub fn resolve_symbol(&self, name: &impl SymbolName, species: SymbolSpecies) -> parser::Result<SharedSymbol> {
+        let id = self.resolve_symbol_id(name, species)?;
+        Ok(self.get_symbol(id))
+    }
+
+    pub fn get_symbol(&self, id: SymbolId) -> SharedSymbol {
+        let guard = self.symbols.borrow();
+        guard.get(&id).expect("Critical parser bug").clone()
     }
 }
 
@@ -54,377 +165,94 @@ pub type SymbolId = u64;
 
 #[derive(Clone, Debug)]
 pub enum Symbol {
-    Variable(VarRef),
-    Function(FnRef),
-    Struct(StructRef),
-    Uniform(UniformRef),
-    PushConstant(PushConstRef),
-    Input(InputRef),
-    Output(OutputRef),
-    Provide(ProvideRef),
-    Tuple(TupleRef),
+    Variable(VarSym),
+    Function(FnSym),
+    FnParam(FnParamSym),
+    Struct(StructSym),
+    Field(FieldSym),
+    Uniform(UniformSym),
+    PushConstant(VarSym),
+    Input(VarSym),
+    Output(VarSym),
+    Provide(VarSym),
 }
 
-impl Symbol {
-    pub fn get_id(&self) -> SymbolId {
-        match self {
-            Symbol::Variable(r) => r.0,
-            Symbol::Function(r) => r.0,
-            Symbol::Struct(r) => r.sym,
-            Symbol::Uniform(r) => r.0,
-            Symbol::PushConstant(r) => r.0,
-            Symbol::Input(r) => r.0,
-            Symbol::Output(r) => r.0,
-            Symbol::Provide(r) => r.0,
-            Symbol::Tuple(r) => r.0,
-        }
-    }
+#[derive(Clone, Debug)]
+pub struct VarSym {
+    pub id: SymbolId,
+    pub kw_tkn: TokCtx, //None when method param
+    pub name: Ident,
+    pub colon_tkn: Option<TokCtx>,
+    pub ty: Option<Type>,
+    pub eq_tkn: Option<TokCtx>,
+    pub init: Option<Expr>,
+    pub mods: ResMods,
+    pub semi_tkn: TokCtx,
+    pub cnst: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct VarRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct FnRef(SymbolId);
-#[derive(Clone, Debug)] pub struct StructRef {
-    pub sym: SymbolId,
-    pub internal_scope: SharedScope
-}
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct UniformRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct PushConstRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct InputRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct OutputRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct ProvideRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct TypeRef(SymbolId);
-#[derive(Clone, Debug, Eq, PartialEq, Hash)] pub struct TupleRef(SymbolId);
-
-pub type SharedScope = Rc<RefCell<Scope>>;
-
-pub struct ScopeResolver {
-    pub scopes: Vec<SharedScope>,
-    second_pass: bool,
-    ast: Option<Ast>,
-    idx: usize,
+#[derive(Clone, Debug)]
+pub struct FnSym {
+    pub id: SymbolId,
+    pub fn_tkn: TokCtx,
+    pub name: Ident,
+    pub l_paren: TokCtx,
+    pub params: Vec<SymbolId>,
+    pub r_paren: TokCtx,
+    pub arrow_tkn: Option<TokCtx>,
+    pub return_type: Option<Type>,
+    pub scope: SharedScope
 }
 
-const COUNTER_ID: &str = "SymbolId";
+#[derive(Clone, Debug)]
+pub struct FnParamSym {
+    pub id: SymbolId,
+    pub name: Ident,
+    pub colon_tkn: TokCtx,
+    pub ty: Type,
+    pub comma_tkn: Option<TokCtx>
+}
 
-type Result<T> = parser::Result<T>;
-type NoResult = parser::Result<()>;
+#[derive(Clone, Debug)]
+pub struct StructSym {
+    pub id: SymbolId,
+    pub internal_scope: SharedScope,
+    pub name: Ident,
+    pub brace1_tkn: TokCtx,
+    pub fields: Vec<SymbolId>,
+    pub methods: Vec<SymbolId>,
+    pub brace2_tkn: TokCtx,
+}
 
-impl ScopeResolver {
-    pub fn new(ast: Ast) -> Self {
-        let s = Self {
-            scopes: vec![],
-            second_pass: false,
-            ast: Some(ast),
-            idx: 0,
-        };
+#[derive(Clone, Debug)]
+pub struct UniformSym {
+    pub uniform_tkn: TokCtx,
+    pub name: Ident,
+    pub ty: Type,
 
-        s
-    }
+    pub set_tkn: TokCtx,
+    pub set_eq_tkn: TokCtx,
+    pub set_lit_tkn: TokCtx,
+    pub set: u32,
 
-    pub fn parse(mut self) -> Result<Ast> {
-        let mut ast = self.ast.take().expect("is here");
-        self.handle_scope(ast.iter_mut(), None)?;
-        self.second_pass = true;
-        self.handle_scope(ast.iter_mut(), None)?;
-        Ok(ast)
-    }
+    pub binding_tkn: TokCtx,
+    pub binding_eq_tkn: TokCtx,
+    pub binding_lit_tkn: TokCtx,
+    pub binding: u32,
+    pub mods: ResMods,
+    pub uniform_type: UniformType,
+    pub semi_tkn: TokCtx,
+}
 
-    pub fn handle_scope<I: Iterator<Item=S>, S: DerefMut<Target=Stmt>>(&mut self, stmts: I, parent: Option<SharedScope>) -> NoResult {
-        self.handle_scope_init::<I, S, fn(SharedScope) -> NoResult>(stmts, parent, None)
-    }
+#[derive(Clone, Debug)]
+pub struct FieldSym {
+    pub name: Ident,
+    pub colon_tkn: TokCtx,
+    pub ty: Type,
+    pub semi_tkn: TokCtx
+}
 
-    pub fn handle_scope_init<I: Iterator<Item=S>, S: DerefMut<Target=Stmt>, F: FnMut(SharedScope) -> NoResult>(&mut self, mut stmts: I, parent: Option<SharedScope>, init: Option<F>) -> NoResult {
-        let scope = if self.second_pass {
-            self.scopes[self.idx.inc() - 1].clone()
-        } else {
-            Scope::new(parent)
-        };
-
-        if let Some(mut init) = init {
-            init(scope.clone())?;
-        }
-
-        if !self.second_pass {
-            self.scopes.push(scope.clone());
-        }
-
-        while let Some(stmt) = stmts.next().as_deref_mut() {
-            match stmt {
-                Stmt::Compound(inner_stmts) => {
-                    for stmt in &mut inner_stmts.components {
-                        self.handle_stmt(stmt, &scope)?;
-                    }
-                }
-                _ => self.handle_stmt(stmt, &scope)?,
-            }
-        }
-
-        Ok(())
-    }
-
-    fn handle_ident<F: Fn(SymbolId) -> Symbol>(second_pass: bool, ident: &mut Ident, current_scope: &SharedScope, generator: F) -> Result<(SymbolId, &'static Symbol)> {
-        let mut guard = current_scope.borrow_mut();
-        let sym = guard.lookup_sym(&ident.val);
-        if second_pass {
-            match sym {
-                None => {
-                    Err(ParseErr {
-                        ty: ParseErrType::UnknownIdent(ident.val.clone()),
-                        ctx: ident.tkn.clone(),
-                        tail: "".to_string(),
-                        hint: None,
-                    })
-                }
-                Some(sym) => {
-                    let sym = unsafe { mem::transmute::<&Symbol, &'static Symbol>(sym) };
-                    ident.resolved_ident = Some(sym.get_id());
-                    Ok((sym.get_id(), sym))
-                }
-            }
-        } else {
-            let id = mvutils::utils::next_id(COUNTER_ID);
-            guard.symbols.insert(ident.val.clone(), generator(id));
-            let sym = guard.symbols.get(&ident.val).expect("Look above");
-            let sym = unsafe { mem::transmute::<&Symbol, &'static Symbol>(sym) };
-            ident.resolved_ident = Some(id);
-            Ok((id, sym))
-        }
-    }
-
-    fn handle_type(&mut self, ty: &mut Type, current_scope: &SharedScope) -> Result<Option<SymbolId>> {
-        match ty {
-            Type::Primitive(_, _) => Ok(None),
-            Type::SingleType(st) => {
-                if let Some(sym) = current_scope.borrow().lookup_sym(&st.name) {
-                    return match sym {
-                        Symbol::Struct(r) => {
-                            st.resolved_name = Some(r.sym);
-                            Ok(Some(r.sym))
-                        },
-                        _ => {
-                            Err(ParseErr {
-                                ty: ParseErrType::NotATypeSymbol(st.name.clone()),
-                                ctx: st.tkn.clone(),
-                                tail: "".to_string(),
-                                hint: None,
-                            })
-                        }
-                    };
-                }
-                if self.second_pass {
-                    return Err(ParseErr {
-                        ty: ParseErrType::UnknownType(st.name.clone()),
-                        ctx: st.tkn.clone(),
-                        tail: "".to_string(),
-                        hint: None,
-                    });
-                }
-                Ok(None)
-            }
-            Type::PathType(_) => todo!(),
-            Type::ArrayOf(arr) => {
-                if let Some(dim_expr) = &mut arr.dimension {
-                    self.handle_expr(dim_expr, current_scope)?;
-                }
-                self.handle_type(&mut arr.component, current_scope)
-            }
-            Type::TupleOf(tp) => {
-                let sym_id = mvutils::utils::next_id(COUNTER_ID);
-                let mut name = String::new();
-                for (typ, _) in &mut tp.types {
-                    self.handle_type(typ, current_scope)?;
-                    let s = format!("{typ}_");
-                    name.push_str(&s);
-                }
-
-                current_scope.borrow_mut().symbols.insert(format!("+tuple_{name}"), Symbol::Tuple(TupleRef(sym_id)));
-                Ok(Some(sym_id))
-            }
-            Type::StructDef(st) => {
-                self.handle_struct_def(&mut st.inner, current_scope)
-            }
-        }
-    }
-
-    fn handle_expr(&mut self, expr: &mut Expr, current_scope: &SharedScope) -> NoResult {
-        match expr {
-            Expr::Unary(un_op) => self.handle_expr(&mut un_op.expr, current_scope)?,
-            Expr::Binary(bin_op) => {
-                self.handle_expr(&mut bin_op.lhs, current_scope)?;
-                self.handle_expr(&mut bin_op.rhs, current_scope)?;
-            }
-            Expr::FnCall(fn_call) => {
-                Self::handle_ident(true, &mut fn_call.ident, current_scope, |id| Symbol::Variable(VarRef(id)))?;
-                for (arg, _) in fn_call.args.iter_mut() {
-                    self.handle_expr(arg, current_scope)?;
-                }
-            }
-            Expr::Access(acc) => {
-                self.handle_expr(&mut acc.parent, current_scope)?;
-            }
-            Expr::Variable(vr) => {
-                Self::handle_ident(true, &mut vr.ident, current_scope, |id| Symbol::Variable(VarRef(id)))?;
-            }
-            Expr::Index(idx) => {
-                self.handle_expr(&mut idx.array, current_scope)?;
-                self.handle_expr(&mut idx.index, current_scope)?;
-            }
-            Expr::Ternary(tr) => {
-                self.handle_expr(&mut tr.cond, current_scope)?;
-                self.handle_expr(&mut tr.yes, current_scope)?;
-                self.handle_expr(&mut tr.no, current_scope)?;
-            }
-            Expr::PreFix(pf) => {
-                self.handle_expr(&mut pf.expr, current_scope)?;
-            }
-            Expr::PostFix(pf) => {
-                self.handle_expr(&mut pf.expr, current_scope)?;
-            }
-            Expr::Tuple(tp) => {
-                for (arg, _) in tp.args.iter_mut() {
-                    self.handle_expr(arg, current_scope)?;
-                }
-            }
-            Expr::Array(ar) => {
-                for (arg, _) in ar.args.iter_mut() {
-                    self.handle_expr(arg, current_scope)?;
-                }
-            }
-            Expr::Block(bck) => {
-                self.handle_scope(
-                    bck.block.iter_mut(),
-                    Some(current_scope.clone())
-                )?;
-            }
-            Expr::Assign(ass) => {
-                self.handle_expr(&mut ass.lhs, current_scope)?;
-                self.handle_expr(&mut ass.rhs, current_scope)?;
-            }
-            Expr::Nonuniform(u) => {
-                self.handle_expr(&mut u.expr, current_scope)?;
-            }
-            Expr::Literal(_) => {}
-        }
-        Ok(())
-    }
-
-    fn handle_stmt(&mut self, stmt: &mut Stmt, current_scope: &SharedScope) -> NoResult {
-        match stmt {
-            Stmt::If(if_stmt) => {
-                self.handle_expr(&mut if_stmt.cond, current_scope)?;
-                self.handle_scope(iter::once(&mut *if_stmt.branch), Some(current_scope.clone()))?;
-                if let Some(else_br) = &mut if_stmt.else_branch {
-                    self.handle_scope(iter::once(&mut **else_br), Some(current_scope.clone()))?;
-                }
-            }
-            Stmt::For(for_stmt) => {
-                if let Some(cond) = &mut for_stmt.cond { self.handle_expr(cond, current_scope)?; }
-                if let Some(run) = &mut for_stmt.after_run { self.handle_expr(run, current_scope)?; }
-                if let Some(cond) = &mut for_stmt.start_cond { self.handle_expr(cond, current_scope)?; }
-
-                self.handle_scope(iter::once(&mut *for_stmt.block), Some(current_scope.clone()))?;
-            }
-            Stmt::While(while_stmt) => {
-                self.handle_expr(&mut while_stmt.cond, current_scope)?;
-
-                self.handle_scope(iter::once(&mut *while_stmt.block), Some(current_scope.clone()))?;
-            }
-            Stmt::MethodDecl(meth_decl) => {
-                Self::handle_ident(self.second_pass, &mut meth_decl.name, current_scope, |id| Symbol::Function(FnRef(id)))?;
-                self.handle_meth_def(meth_decl, current_scope)?;
-            }
-            Stmt::VarDecl(var_decl) => {
-                Self::handle_ident(self.second_pass, &mut var_decl.name, current_scope, |id| Symbol::Function(FnRef(id)))?;
-                if let Some(ret_type) = &mut var_decl.ty {
-                    self.handle_type(ret_type, current_scope)?;
-                }
-                if let Some(init) = &mut var_decl.init {
-                    self.handle_expr(init, current_scope)?;
-                }
-            }
-            Stmt::Return(ret_stmt) => {
-                if let Some(ret_expr) = &mut ret_stmt.expr {
-                    self.handle_expr(ret_expr, current_scope)?;
-                }
-            }
-            Stmt::Yield(yield_stmt) => {
-                self.handle_expr(&mut yield_stmt.expr, current_scope)?;
-            }
-            Stmt::Break(_) => {}
-            Stmt::Continue(_) => {}
-            Stmt::Include(_include_stmt) => {
-                todo!()
-            }
-            Stmt::Extension(_) => {}
-            Stmt::Input(inp_stmt) => {
-                Self::handle_ident(self.second_pass, &mut inp_stmt.name, current_scope, |id| Symbol::Input(InputRef(id)))?;
-                self.handle_type(&mut inp_stmt.ty, current_scope)?;
-            }
-            Stmt::Output(out_stmt) => {
-                Self::handle_ident(self.second_pass, &mut out_stmt.name, current_scope, |id| Symbol::Output(OutputRef(id)))?;
-                self.handle_type(&mut out_stmt.ty, current_scope)?;
-            }
-            Stmt::Provide(prv_stmt) => {
-                Self::handle_ident(self.second_pass, &mut prv_stmt.name, current_scope, |id| Symbol::Provide(ProvideRef(id)))?;
-                self.handle_type(&mut prv_stmt.ty, current_scope)?;
-            }
-            Stmt::PushConstants(pc_stmt) => {
-                Self::handle_ident(self.second_pass, &mut pc_stmt.name, current_scope, |id| Symbol::PushConstant(PushConstRef(id)))?;
-                self.handle_type(&mut pc_stmt.ty, current_scope)?;
-            }
-            Stmt::Uniform(uni) => {
-                Self::handle_ident(self.second_pass, &mut uni.name, current_scope, |id| Symbol::Uniform(UniformRef(id)))?;
-            }
-            Stmt::Struct(struct_stmt) => {
-                self.handle_struct_def(struct_stmt, current_scope)?;
-            }
-            Stmt::Block(b_stmt) => {
-                self.handle_scope(b_stmt.stmts.iter_mut(), Some(current_scope.clone()))?;
-            }
-            Stmt::Expr(expr) => {
-                self.handle_expr(&mut expr.expr, current_scope)?;
-            }
-            Stmt::Compound(inner_stmts) => {
-                for stmt in &mut inner_stmts.components {
-                    self.handle_stmt(stmt, current_scope)?;
-                }
-            }
-            Stmt::Semi(_) => {}
-        }
-        Ok(())
-    }
-
-    fn handle_struct_def(&mut self, stmt: &mut StructStmt, current_scope: &SharedScope) -> Result<Option<SymbolId>> {
-        let (id, sym) = Self::handle_ident(self.second_pass, &mut stmt.name, current_scope, |id| Symbol::Struct(StructRef { sym: id, internal_scope: Scope::new(None) }))?;
-        let struct_sym = enum_val!(Symbol, sym, Struct);
-        let struct_scope = &struct_sym.internal_scope;
-
-        for field in &mut stmt.fields {
-            self.handle_type(&mut field.ty, current_scope)?;
-            Self::handle_ident(self.second_pass, &mut field.name, struct_scope, |id| Symbol::Variable(VarRef(id)))?;
-        }
-        for method in &mut stmt.methods {
-            self.handle_meth_def(method, current_scope)?;
-            Self::handle_ident(self.second_pass, &mut method.name, struct_scope, |id| Symbol::Function(FnRef(id)))?;
-        }
-
-        Ok(Some(id))
-    }
-
-    fn handle_meth_def(&mut self, meth_decl: &mut MethodDeclStmt, current_scope: &SharedScope) -> NoResult {
-        let second_pass = self.second_pass;
-        let init = Some(|new_scope: SharedScope| {
-            for param in &mut meth_decl.params {
-                Self::handle_ident(second_pass, &mut param.name, &new_scope, |id| Symbol::Variable(VarRef(id)))?;
-            }
-            Ok(())
-        });
-
-        self.handle_scope_init(iter::once(&mut *meth_decl.block), Some(current_scope.clone()), init)?;
-
-        if let Some(ret_type) = &mut meth_decl.return_type {
-            self.handle_type(ret_type, current_scope)?;
-        }
-        Ok(())
-    }
+pub trait SymbolName {
+    fn get_name(&self) -> &String;
+    fn get_error_token(&self) -> TokCtx;
 }

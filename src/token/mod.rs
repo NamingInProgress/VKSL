@@ -120,6 +120,10 @@ pub enum Keyword {
     Continue,
     #[casing(Lower)]
     Nonuniform,
+    #[casing(Lower)]
+    This,
+    #[casing(Lower)]
+    As,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -246,6 +250,8 @@ impl Display for Keyword {
             Keyword::Break => "break",
             Keyword::Continue => "continue",
             Keyword::Nonuniform => "nonuniform",
+            Keyword::This => "this",
+            Keyword::As => "as",
         })
     }
 }

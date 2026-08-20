@@ -1,5 +1,5 @@
-use crate::ast::stmt::{BlockStmt, BreakStmt, CompoundStmt, ContinueStmt, ExprStmt, ExtensionStmt, ForStmt, IfStmt, InputStmt, MethodDeclStmt, MethodParamDecl, OutputStmt, ProvideStmt, PushConstantsStmt, ReturnStmt, SemiStmt, Stmt, StructField, StructStmt, UniformStmt, UniformType, VarDeclStmt, WhileStmt, YieldStmt};
-use crate::ast::ty::Type;
+use crate::parser::ast::stmt::{BlockStmt, BreakStmt, CompoundStmt, ContinueStmt, ExprStmt, ExtensionStmt, ForStmt, IfStmt, InputStmt, MethodDeclStmt, MethodParamDecl, OutputStmt, ProvideStmt, PushConstantsStmt, ReturnStmt, SemiStmt, Stmt, StructField, StructStmt, UniformStmt, UniformType, VarDeclStmt, WhileStmt, YieldStmt};
+use crate::parser::ast::ty::Type;
 use crate::parser::err::TokenExpectation::*;
 use crate::parser::mods::{ModRule, Modifier, ModsUsage};
 use crate::parser::Parser;
@@ -52,8 +52,12 @@ impl<I: Iterator<Item = char>> Parser<I> {
             Keyword::For => self.parse_for(),
             Keyword::While => self.parse_while(),
             Keyword::Yield => self.parse_yield(),
-            Keyword::Break => Ok(Stmt::Break(BreakStmt {})),
-            Keyword::Continue => Ok(Stmt::Continue(ContinueStmt {})),
+            Keyword::Break => Ok(Stmt::Break(BreakStmt {
+                break_tkn: self.unwrap_next()?.ctx,
+            })),
+            Keyword::Continue => Ok(Stmt::Continue(ContinueStmt {
+                continue_tkn: self.unwrap_next()?.ctx
+            })),
             _ => {
                 let tk = self.unwrap_next()?.ctx;
                 Err(self.token_err_with_hint(
@@ -138,7 +142,8 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 semi2_tkn,
                 after_run,
                 r_paren,
-                block
+                block,
+                fut_scope: None,
             }.into()
         )
     }
@@ -211,7 +216,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             tk = self.expect_next(Te!(let))?.ctx;
         }
 
-        let ntd = self.parse_name_type_def(false, true)?;
+        let ntd = self.parse_name_type_def(cnst, true)?;
 
         let mut init = None;
         let mut eq_tkn = None;
@@ -288,6 +293,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         Ok(PushConstantsStmt {
             pc_tkn,
             name,
+            colon_tkn: ntd.colon_tk.expect("needs type"),
             ty,
             semi_tkn: self.expect_semi()?.ctx
         }.into())
@@ -325,6 +331,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 UniformStmt {
                     uniform_tkn,
                     name,
+                    colon_tkn: ntd.colon_tk.expect("needs type"),
                     ty,
 
                     set_tkn: set_tkn.tkn,
@@ -352,6 +359,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 UniformStmt {
                     uniform_tkn,
                     name,
+                    colon_tkn: ntd.colon_tk.expect("needs type"),
                     ty,
 
                     set_tkn: set_tkn.tkn,
@@ -376,6 +384,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 UniformStmt {
                     uniform_tkn,
                     name,
+                    colon_tkn: ntd.colon_tk.expect("needs type"),
                     ty,
 
                     set_tkn: set_tkn.tkn,
@@ -446,7 +455,9 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 r_paren,
                 arrow_tkn,
                 return_type,
-                block: Box::new(block.into())
+                block: Box::new(block.into()),
+                symbol_id: None,
+                fut_scope: None,
             }.into()
         )
     }
@@ -467,20 +478,21 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 l_brace,
                 stmts: block,
                 r_brace,
+                fut_scope: None,
             }
         )
     }
 
     pub fn parse_shader_output(&mut self) -> parser::Result<Stmt> {
         let output_tkn = self.expect_next(Te!(output))?.ctx;
-        let ty = self.parse_type()?;
-        let name = self.expect_ident()?;
+        let ntd = self.parse_name_type_def_single(true)?;
 
         Ok(
             OutputStmt {
                 output_tkn,
-                ty,
-                name,
+                ty: ntd.ty.expect("needs type"),
+                colon_tkn: ntd.colon_tk.expect("needs type"),
+                name: ntd.name,
                 semi_tkn: self.expect_semi()?.ctx,
             }.into()
         )
@@ -505,6 +517,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 ProvideStmt {
                     provide_tkn: tkn,
                     ty,
+                    colon_tkn: ntd.colon_tk.expect("needs type"),
                     name,
                     mods: res,
                     semi_tkn
@@ -514,6 +527,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             Ok(InputStmt {
                 input_tkn: tkn,
                 ty,
+                colon_tkn: ntd.colon_tk.expect("needs type"),
                 name,
                 mods: res,
                 semi_tkn
@@ -522,7 +536,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
     }
 
     pub fn parse_struct(&mut self) -> parser::Result<Stmt> {
-        self.expect_next(Te!(struct))?;
+        let struct_tkn = self.expect_next(Te!(struct))?;
         let name = self.expect_ident()?;
         let brack1 = self.expect_next(Te!('{'))?;
 
@@ -554,11 +568,14 @@ impl<I: Iterator<Item = char>> Parser<I> {
         let brack2 = self.expect_next(Te!('}'))?;
 
         Ok(StructStmt {
+            struct_tkn: struct_tkn.ctx,
             name,
             brace1_tkn: brack1.ctx,
             fields,
             methods: meths,
-            brace2_tkn: brack2.ctx
+            brace2_tkn: brack2.ctx,
+            symbol_id: None,
+            fut_scope: None,
         }.into())
     }
 }

@@ -10,7 +10,6 @@ dependencies = [
  "itertools",
  "mvutils",
  "mvutils-proc-macro",
- "regex",
 ]
 
 [[package]]

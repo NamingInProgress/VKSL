@@ -1,4 +1,4 @@
-use crate::ast::ty::{ArrayType, PathType, PrimitiveType, SingleType, StructType, TupleType, Type};
+use crate::parser::ast::ty::{ArrayType, PathType, PrimitiveType, SingleType, StructType, TupleType, Type};
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::parser::Parser;
 use crate::parser::TokenType;
@@ -7,8 +7,8 @@ use crate::{parser, Te, T};
 use std::str::FromStr;
 use itertools::Itertools;
 use mvutils::enum_val;
-use crate::ast::Ident;
-use crate::ast::stmt::Stmt;
+use crate::parser::ast::Ident;
+use crate::parser::ast::stmt::Stmt;
 
 pub struct NTD {
     pub name: Ident,
@@ -76,8 +76,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 self.unwrap_next()?;
                 let mut all = vec![Ident {
                     val: start,
-                    tkn: tok.ctx,
-                    resolved_ident: None
+                    tkn: tok.ctx
                 }];
                 let mut dot_tkns = vec![];
                 while let Some(Token { ty: T!(.), ctx }) = self.peek_token()? {
@@ -100,7 +99,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 if let Ok(prim) = PrimitiveType::from_str(&ident) {
                     Type::Primitive(prim, tok.ctx)
                 } else {
-                    Type::SingleType(SingleType{ name: ident, tkn: tok.ctx, resolved_name: None } )
+                    Type::SingleType(SingleType{ name: ident, tkn: tok.ctx } )
                 }
             }
             TokenType::Keyword(Keyword::Struct) => {

@@ -1,10 +1,10 @@
-use crate::ast::stmt::Stmt;
+use ast::stmt::Stmt;
 use crate::parser::err::{ParseErr, ParseErrType, TokenExpectation};
 use crate::token::tokenizer::Tokenizer;
-use crate::token::{TokCtx, Literal, Token, TokenType};
-use crate::{ast, token};
+use crate::token::{Literal, TokCtx, Token, TokenType};
+use crate::token;
 use err::TokenExpectation::*;
-use crate::ast::Ast;
+use ast::Ast;
 
 pub mod err;
 pub mod expr;
@@ -12,6 +12,7 @@ pub mod stmt;
 pub mod types;
 pub mod mods;
 pub mod punct;
+pub mod ast;
 
 pub type Result<T> = core::result::Result<T, ParseErr>;
 pub type TokenRes = token::tokenizer::Result;
@@ -93,7 +94,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         };
 
         if name == expected {
-            return Ok(ast::Ident { val: name.clone(), tkn: token.ctx, resolved_ident: None });
+            return Ok(ast::Ident { val: name.clone(), tkn: token.ctx });
         }
 
         Err(self.token_err_with_hint(
@@ -107,7 +108,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         let token = self.expect_next(vec![Ident])?;
 
         match token.ty {
-            TokenType::Ident(name) => Ok(ast::Ident { val: name, tkn: token.ctx, resolved_ident: None }),
+            TokenType::Ident(name) => Ok(ast::Ident { val: name, tkn: token.ctx }),
             _ => unreachable!(),
         }
     }
