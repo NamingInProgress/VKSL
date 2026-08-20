@@ -111,7 +111,6 @@ impl<I: Iterator<Item=char>> Parser<I> {
                                 let e = ParseErr {
                                     ty: ParseErrType::IllegalModifier(*option),
                                     ctx,
-                                    tail: "".to_string(),
                                     hint: Some(format!("only one of {options_str} is permitted. Consider removing `{option}`")),
                                 };
 
@@ -136,7 +135,6 @@ impl<I: Iterator<Item=char>> Parser<I> {
                         let e = ParseErr {
                             ty: ParseErrType::MissingModifier,
                             ctx: self.tokens.create_context(),
-                            tail: "".to_string(),
                             hint: Some(format!("one of {options_str} is required. Consider adding `{recommendation}`")),
                         };
 
@@ -160,7 +158,6 @@ impl<I: Iterator<Item=char>> Parser<I> {
                                 let e = ParseErr {
                                     ty: ParseErrType::IllegalModifier(*option),
                                     ctx: token,
-                                    tail: "".to_string(),
                                     hint: Some(format!("only one of {options_str} is permitted. Consider removing `{option}`")),
                                 };
 
@@ -179,7 +176,6 @@ impl<I: Iterator<Item=char>> Parser<I> {
             return Err(ParseErr {
                 ty: ParseErrType::IllegalModifier(unhandled_mod),
                 ctx: token,
-                tail: "".to_string(),
                 hint: Some(format!("`{unhandled_mod}` is not a valid modifier in this context")),
             });
         }

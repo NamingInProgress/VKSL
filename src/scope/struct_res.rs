@@ -28,7 +28,6 @@ fn handle_struct(stmt: &mut StructStmt, scope: &SharedScope) -> Result<()> {
             let e = ParseErr {
                 ty: ParseErrType::DuplicateStruct(name),
                 ctx: stmt.name.tkn.clone(),
-                tail: "".to_string(),
                 hint: Some(hint),
             };
             return Err(e);
@@ -58,7 +57,6 @@ fn handle_fn(stmt: &mut MethodDeclStmt, scope: &SharedScope) -> Result<()> {
             let e = ParseErr {
                 ty: ParseErrType::DuplicateFn(name),
                 ctx: stmt.name.tkn.clone(),
-                tail: "".to_string(),
                 hint: Some(hint),
             };
             return Err(e);

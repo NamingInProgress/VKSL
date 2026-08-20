@@ -56,12 +56,9 @@ impl<I: Iterator<Item = char>> Parser<I> {
             let ctx = next.ctx.clone();
             let ty = ParseErrType::UnexpectedToken(next, expected);
 
-            let tail = self.tokens.tail_default();
-
             return Err(ParseErr {
                 ty,
                 ctx,
-                tail,
                 hint: Some("Consider using one of the listed tokens instead.".to_string()),
             });
         }
@@ -172,12 +169,9 @@ impl<I: Iterator<Item = char>> Parser<I> {
     }
 
     pub fn token_err(&mut self, inner: ParseErrType, tok: Token) -> ParseErr {
-        let tail = self.tokens.tail_default();
-
         ParseErr {
             ty: inner,
             ctx: tok.ctx,
-            tail,
             hint: None,
         }
     }
@@ -188,23 +182,17 @@ impl<I: Iterator<Item = char>> Parser<I> {
         tok: TokCtx,
         hint: String,
     ) -> ParseErr {
-        let tail = self.tokens.tail_default();
-
         ParseErr {
             ty: inner,
             ctx: tok,
-            tail,
             hint: Some(hint),
         }
     }
 
     pub fn tokenizer_err(&mut self, inner: ParseErrType) -> ParseErr {
-        let tail = self.tokens.tail_default();
-
         ParseErr {
             ty: inner,
             ctx: self.tokens.create_context(),
-            tail,
             hint: None,
         }
     }

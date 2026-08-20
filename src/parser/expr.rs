@@ -19,7 +19,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             ..
         }) = self.peek_token()?
         {
-            let precedence = op.precedence(&ctx, || self.tokens.tail_default())?;
+            let precedence = op.precedence(&ctx)?;
 
             if precedence < min_precedence {
                 break;
@@ -35,7 +35,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             }) = self.peek_token()?
             {
                 let inner_precedence =
-                    inner_op.precedence(&inner_ctx, || self.tokens.tail_default())?;
+                    inner_op.precedence(&inner_ctx)?;
 
                 if inner_precedence <= precedence {
                     break;

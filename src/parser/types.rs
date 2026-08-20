@@ -119,11 +119,9 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 })
             }
             _ => {
-                let tail = self.tokens.tail_default();
                 let e = ParseErr {
                     ty: ParseErrType::UnexpectedToken(tok.clone(), Te!(ID struct)),
                     ctx: tok.ctx,
-                    tail,
                     hint: Some("consider using different tokens to build a valid type! Read the specification for details. Maybe use the type `uint`?".to_string()),
                 };
                 return Err(e);

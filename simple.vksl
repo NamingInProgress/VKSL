@@ -1,11 +1,5 @@
-let a = 0;
-let b = a as uint;
+extension sadsad enable; let a = 5;
 
-struct B {
-    a: uint;
+fn a() {
+    a();
 }
-
-let c = B(10);
-let d = B {
-    a: 10u,
-};

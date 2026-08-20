@@ -12,7 +12,7 @@ use std::vec::IntoIter;
 pub type Result = core::result::Result<Token, TokenErr>;
 
 pub const HIST_CAP: usize = 60;
-pub const TAIL_CAP: usize = 10;
+pub const FUTURE_CAP: usize = 20;
 
 #[derive(Clone, PartialEq)]
 pub enum TokenErr {
@@ -41,7 +41,7 @@ pub struct Tokenizer<I: Iterator<Item = char>> {
     pub line: u32,
     pub pos: u32,
     buffer: VecDeque<Token>,
-    pub history: History,
+    pub history: SlidingString,
     pub start_pos: u32,
 }
 
@@ -60,7 +60,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
             line: 1,
             pos: 0,
             buffer: VecDeque::new(),
-            history: History::new(HIST_CAP),
+            history: SlidingString::new(HIST_CAP),
             start_pos: 0,
         }
     }
@@ -285,6 +285,14 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                             Operator(Minus)
                         };
                         if !is_neg {
+                            let mut future = String::with_capacity(FUTURE_CAP);
+                            for i in 0..FUTURE_CAP {
+                                let c = self.src.peek_nth(i);
+                                if let Some(c) = c {
+                                    future.push(*c);
+                                }
+                            }
+
                             return Some(Ok(Token {
                                 ty: raw,
                                 ctx: TokCtx {
@@ -293,6 +301,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                                     end_pos: self.pos,
                                     file: self.file.clone(),
                                     history: self.history.clone(),
+                                    future,
                                 },
                             }));
                         }
@@ -397,6 +406,14 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 }
             };
 
+            let mut future = String::with_capacity(FUTURE_CAP);
+            for i in 0..FUTURE_CAP {
+                let c = self.src.peek_nth(i);
+                if let Some(c) = c {
+                    future.push(*c);
+                }
+            }
+
             return Some(Ok(Token {
                 ty: token_type,
                 ctx: TokCtx {
@@ -405,6 +422,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                     end_pos: self.pos,
                     file: self.file.clone(),
                     history: self.history.clone(),
+                    future,
                 },
             }));
         }
@@ -414,13 +432,22 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         Some(Err(inner))
     }
 
-    pub fn create_context(&self) -> TokCtx {
+    pub fn create_context(&mut self) -> TokCtx {
+        let mut future = String::with_capacity(FUTURE_CAP);
+        for i in 0..FUTURE_CAP {
+            let c = self.src.peek_nth(i);
+            if let Some(c) = c {
+                future.push(*c);
+            }
+        }
+
         TokCtx {
             line: self.line,
             start_pos: self.start_pos,
             end_pos: self.pos,
             file: self.file.clone(),
             history: self.history.clone(),
+            future,
         }
     }
 
@@ -532,29 +559,6 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 .expect("will be some look at method bruh")
         }
     }
-
-    pub fn next_raw_chars(&mut self, n: usize) -> String {
-        let mut s = String::with_capacity(n);
-        for _ in 0..n {
-            if let Some(c) = self.src.next() {
-                s.push(c);
-            } else {
-                break;
-            }
-        }
-        s
-    }
-
-    pub fn tail(&mut self, n: usize) -> String {
-        self.next_raw_chars(n)
-            .chars()
-            .take_while(|c| *c != '\n')
-            .collect::<String>()
-    }
-
-    pub(crate) fn tail_default(&mut self) -> String {
-        self.tail(TAIL_CAP)
-    }
 }
 
 impl<I: Iterator<Item = char>> Iterator for Tokenizer<I> {
@@ -566,19 +570,20 @@ impl<I: Iterator<Item = char>> Iterator for Tokenizer<I> {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct History {
+pub struct SlidingString {
     contents: Vec<char>,
     seam: usize,
     pub(crate) len: usize,
 }
 
-impl Debug for History {
+impl Debug for SlidingString {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        f.write_str("<history>")
+        let data = self.reconstruct();
+        f.write_str(&data)
     }
 }
 
-impl History {
+impl SlidingString {
     pub fn new(cap: usize) -> Self {
         Self {
             contents: vec!['\0'; cap],
@@ -587,8 +592,9 @@ impl History {
         }
     }
 
-    pub fn push(&mut self, c: char) {
+    pub fn push(&mut self, c: char) -> char {
         let cap = self.contents.len();
+        let old = self.contents[self.seam];
         let new_index = (self.seam + 1) % cap;
         self.len += 1;
         if self.len > cap {
@@ -596,6 +602,7 @@ impl History {
         }
         self.contents[new_index] = c;
         self.seam = new_index;
+        old
     }
 
     pub fn reconstruct(&self) -> String {

@@ -11,7 +11,6 @@ use crate::parser::mods::Modifier;
 pub struct ParseErr {
     pub ty: ParseErrType,
     pub ctx: TokCtx,
-    pub tail: String,
     pub hint: Option<String>,
 }
 
@@ -25,7 +24,6 @@ impl Display for ParseErr {
             &message,
             &summary,
             &self.ctx,
-            &self.tail,
             self.hint.as_ref(),
         )
     }
@@ -185,7 +183,6 @@ fn fmt_fancy(
     message: &str,
     summary: &str,
     ctx: &TokCtx,
-    tail: &str,
     hint: Option<&String>,
 ) -> fmt::Result {
     writeln!(f)?;
@@ -198,19 +195,22 @@ fn fmt_fancy(
     let pos = ctx.start_pos;
 
     let hist = ctx.history.reconstruct();
-    let hist = hist
-        .lines()
-        .rev()
+    let hist2 = hist.clone();
+    let mut hist_iter = hist2.lines().rev().map(|s| s.to_string());
+    let hist_main = hist_iter
         .next()
-        .map(|s| s.to_string())
         .unwrap_or(hist);
 
+    let pre_hist = hist_iter.next();
+
+    let future = ctx.future.split('\n').next().map(ToString::to_string).unwrap_or(ctx.future.clone());
+
     let tok_len = ctx.end_pos - ctx.start_pos + 1;
-    let pad_len = hist.len() - (tok_len as usize).min(hist.len());
+    let pad_len = hist_main.len() - (tok_len as usize).min(hist_main.len());
     let padding = create_pad(pad_len);
 
-    let hist_part_normal: &str = &hist[0..pad_len];
-    let hist_part_error: &str = &hist[pad_len..];
+    let hist_part_normal: &str = &hist_main[0..pad_len];
+    let hist_part_error: &str = &hist_main[pad_len..];
     let squiggly = "~".repeat(hist_part_error.len());
 
     let mut printer = mvutils::print::Printer::start()
@@ -239,7 +239,18 @@ fn fmt_fancy(
         .fmt(Fmt::Bold)
         .col(Col::Cyan)
         .text_ln(" | ")
-        .def()
+        .def();
+
+    if let Some(pre_history) = pre_hist {
+        printer = printer.fmt(Fmt::Bold)
+            .col(Col::Cyan)
+            .text(" | ")
+            .def()
+            .text_ln(&pre_history)
+            .def();
+    }
+
+    printer = printer
         .fmt(Fmt::Bold)
         .col(Col::Cyan)
         .text(" | ")
@@ -248,7 +259,7 @@ fn fmt_fancy(
         .bg(Col::Red)
         .text(hist_part_error)
         .def()
-        .text_ln(tail)
+        .text_ln(&future)
         .def()
         .fmt(Fmt::Bold)
         .col(Col::Cyan)

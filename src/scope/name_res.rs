@@ -61,13 +61,14 @@ pub fn make_fn(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
         params.push(param_id);
     }
 
+    let block = conv_stmt(*stmt.block, &fn_scope)?;
+    let return_type = conv_type_opt(stmt.return_type, current_scope)?;
+
     let guard = current_scope.borrow_mut();
 
     if !guard.by_name.contains_key(&stmt.name.val) {
         critical_error!()
     }
-
-    let block = conv_stmt(*stmt.block, &fn_scope)?;
 
     let data = Symbol::Function(FnSym {
         id: symbol,
@@ -77,7 +78,7 @@ pub fn make_fn(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
         params,
         r_paren: stmt.r_paren,
         arrow_tkn: stmt.arrow_tkn,
-        return_type: conv_type_opt(stmt.return_type, current_scope)?,
+        return_type,
         scope: fn_scope.clone(),
     });
 

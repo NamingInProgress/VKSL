@@ -4,7 +4,7 @@ pub mod utils;
 use std::fmt::{Debug, Display, Formatter};
 use crate::parser;
 use crate::parser::err::{ParseErr, ParseErrType};
-use crate::token::tokenizer::History;
+use crate::token::tokenizer::SlidingString;
 use mvutils_proc_macro::TryFromString;
 use std::path::PathBuf;
 
@@ -14,7 +14,8 @@ pub struct TokCtx {
     pub start_pos: u32,
     pub end_pos: u32,
     pub file: Option<PathBuf>,
-    pub history: History,
+    pub history: SlidingString,
+    pub future: String,
 }
 
 impl Debug for TokCtx {
@@ -169,7 +170,6 @@ impl Operator {
     pub fn precedence(
         &self,
         ctx: &TokCtx,
-        tail_gen: impl FnOnce() -> String,
     ) -> parser::Result<u8> {
         match self {
             Operator::Not | Operator::PlusPlus | Operator::MinusMinus => Ok(8),
@@ -184,7 +184,6 @@ impl Operator {
             op => Err(ParseErr {
                 ty: ParseErrType::NonBinaryCompatibleOperator(*self),
                 ctx: ctx.clone(),
-                tail: tail_gen(),
                 hint: (*op == Operator::Assign).then_some(
                     "Consider moving variable assignment to it's own statement".to_string(),
                 ),

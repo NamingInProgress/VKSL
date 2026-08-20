@@ -11,7 +11,7 @@ use crate::scope::ast::expr::Expr;
 use crate::scope::ast::ty::Type;
 use crate::scope::ast::Ident;
 use crate::token::TokCtx;
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
@@ -71,7 +71,8 @@ impl ResolvedScope {
     fn collect_all(&self, species: SymbolSpecies) -> Vec<String> {
         let base = self.by_name.iter()
             .filter_map(|(k, v)| {
-                let sym = self.get_symbol(*v);
+                let sym = self.get_symbol_safe(*v);
+                let Some(sym) = sym else { return if matches!(species, SymbolSpecies::Type | SymbolSpecies::Fn) { Some(k.clone()) } else { None } };
                 match &*sym.borrow() {
                     Symbol::Variable(_) if species == SymbolSpecies::Ident => Some(k.clone()),
                     Symbol::Function(_) if species == SymbolSpecies::Fn => Some(k.clone()),
@@ -139,7 +140,6 @@ impl ResolvedScope {
                     Err(ParseErr {
                         ty: err_kind,
                         ctx: name.get_error_token(),
-                        tail: "".to_string(),
                         hint,
                     })
                 }
@@ -158,6 +158,11 @@ impl ResolvedScope {
     pub fn get_symbol(&self, id: SymbolId) -> SharedSymbol {
         let guard = self.symbols.borrow();
         guard.get(&id).expect("Critical parser bug").clone()
+    }
+
+    pub fn get_symbol_safe(&self, id: SymbolId) -> Option<SharedSymbol> {
+        let guard = self.symbols.borrow();
+        guard.get(&id).cloned()
     }
 }
 
