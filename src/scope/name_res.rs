@@ -4,7 +4,7 @@ use crate::scope::ast::expr::{AccessExpr, AccessFnCallExpr, ArrayExpr, AsExpr, A
 use crate::scope::ast::stmt::{BlockStmt, BreakStmt, CompoundStmt, ConstDeclStmt, ContinueStmt, ExprStmt, ExtensionStmt, ForStmt, IfStmt, InputStmt, MethodDeclStmt, OutputStmt, ProvideStmt, PushConstantsStmt, ReturnStmt, SemiStmt, Stmt, StructStmt, UniformStmt, VarDeclStmt, WhileStmt, YieldStmt};
 use crate::scope::ast::ty::{ArrayType, PrimitiveRef, StructDef, StructRef, TupleDef, Type};
 use crate::scope::ast::{Ast, Ident};
-use crate::scope::{FieldSym, FnParamSym, FnSym, ResolvedScope, SharedScope, StructSym, Symbol, SymbolId, SymbolSpecies, UniformSym, VarSym, COUNTER_ID};
+use crate::scope::{FieldSym, FnParamSym, FnSym, SharedScope, StructSym, Symbol, SymbolId, SymbolSpecies, UniformSym, VarSym, COUNTER_ID};
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
@@ -39,7 +39,7 @@ fn make_var(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::VarDe
         init: conv_expr_opt(stmt.init, current_scope)?,
         mods: ResMods::empty(),
         semi_tkn: stmt.semi_tkn,
-        cnst: false,
+        cnst: stmt.cnst,
     })))
 }
 
