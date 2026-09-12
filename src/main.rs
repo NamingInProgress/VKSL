@@ -7,6 +7,7 @@ use crate::scope::{name_res, struct_res};
 pub mod parser;
 pub mod token;
 pub mod scope;
+pub mod utils;
 
 #[macro_export]
 macro_rules! critical_error {

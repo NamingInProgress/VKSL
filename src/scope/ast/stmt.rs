@@ -158,6 +158,8 @@ pub struct UniformStmt {
 pub struct StructStmt {
     pub symbol: SymbolId,
     pub scope: SharedScope,
+
+    pub methods: Vec<MethodDeclStmt>,
 }
 
 #[derive(Clone, Debug)]

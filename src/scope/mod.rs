@@ -2,6 +2,7 @@ pub mod old;
 pub mod ast;
 pub mod name_res;
 pub mod struct_res;
+pub mod const_eval;
 
 use crate::parser;
 use crate::parser::ast::UniformType;
@@ -10,7 +11,7 @@ use crate::parser::mods::ResMods;
 use crate::scope::ast::expr::Expr;
 use crate::scope::ast::ty::Type;
 use crate::scope::ast::Ident;
-use crate::token::TokCtx;
+use crate::token::{Literal, TokCtx};
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -194,6 +195,9 @@ pub struct VarSym {
     pub mods: ResMods,
     pub semi_tkn: TokCtx,
     pub cnst: bool,
+
+    pub is_currently_being_visited: bool,
+    pub constant: Option<Literal>,
 }
 
 #[derive(Clone, Debug)]
@@ -260,4 +264,46 @@ pub struct FieldSym {
 pub trait SymbolName {
     fn get_name(&self) -> &String;
     fn get_error_token(&self) -> TokCtx;
+}
+
+#[macro_export]
+macro_rules! symbol {
+    (($scope:ident => $sym:expr) as $target:ident) => {
+        {
+            #[allow(unused_imports)]
+            use crate::scope::Symbol;
+            #[allow(unused_imports)]
+            use mvutils::enum_val_ref;
+            #[allow(unused_imports)]
+            use core::cell::RefCell;
+            #[allow(unused_imports)]
+            use crate::scope::ResolvedScope;
+            #[allow(unused_imports)]
+            use crate::scope::SharedSymbol;
+
+            let symbol: SharedSymbol = $scope.borrow().get_symbol($sym);
+            let symbol: core::cell::Ref<'_, Symbol> = symbol.borrow();
+            let symbol = &*symbol;
+           enum_val_ref!(Symbol, symbol, $target)
+        }
+    };
+    (($scope:ident => $sym:expr) as mut $target:ident) => {
+        {
+            #[allow(unused_imports)]
+            use crate::scope::Symbol;
+            #[allow(unused_imports)]
+            use mvutils::enum_val_ref_mut;
+            #[allow(unused_imports)]
+            use core::cell::RefCell;
+            #[allow(unused_imports)]
+            use crate::scope::ResolvedScope;
+            #[allow(unused_imports)]
+            use crate::scope::SharedSymbol;
+
+            let symbol: SharedSymbol = $scope.borrow().get_symbol($sym);
+            let symbol: core::cell::RefMut<'_, Symbol> = symbol.borrow_mut();
+            let symbol = &mut *symbol;
+           enum_val_ref_mut!(Symbol, symbol, $target)
+        }
+    };
 }
