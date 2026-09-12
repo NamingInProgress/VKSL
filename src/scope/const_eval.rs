@@ -198,17 +198,12 @@ fn handle_block<I: IntoIterator<Item=Stmt>>(block: I, scope: &SharedScope) -> pa
     Ok(vec)
 }
 
-fn handle_method_decl(mut s: MethodDeclStmt, scope: &SharedScope) -> parser::Result<MethodDeclStmt> {
-
-    Ok(s)
-}
-
 fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
-
+    todo!()
 }
 
 fn handle_non_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
-
+    todo!()
 }
 
 fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
