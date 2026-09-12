@@ -53,6 +53,7 @@ pub enum ParseErrType {
     IllegalTupleAccessLiteral(PrimitiveType),
     DuplicateStruct(String),
     DuplicateFn(String),
+    ConstantNotAConstant,
 }
 
 impl ParseErrType {
@@ -134,6 +135,9 @@ impl ParseErrType {
             ParseErrType::DuplicateFn(f) => {
                 format!("the function `{f}` has been encountered at multiple times!")
             }
+            ParseErrType::ConstantNotAConstant => {
+                "constant value is not constantly evaluatable".to_string()
+            }
         }
     }
 
@@ -162,7 +166,8 @@ impl ParseErrType {
             ParseErrType::UnknownIdent(st) => format!("unknown identifier {st}"),
             ParseErrType::IllegalTupleAccessLiteral(_) => "illegal tuple access".to_string(),
             ParseErrType::DuplicateStruct(_) => "duplicate struct".to_string(),
-            ParseErrType::DuplicateFn(_) => "duplicate function".to_string()
+            ParseErrType::DuplicateFn(_) => "duplicate function".to_string(),
+            ParseErrType::ConstantNotAConstant => "inevaluatable constant".to_string(),
         }
     }
 }

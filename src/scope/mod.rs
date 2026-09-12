@@ -15,6 +15,8 @@ use crate::token::{Literal, TokCtx};
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use itertools::Itertools;
 
@@ -281,13 +283,13 @@ macro_rules! symbol {
             #[allow(unused_imports)]
             use crate::scope::SharedSymbol;
 
-            let symbol: SharedSymbol = $scope.borrow().get_symbol($sym);
-            let symbol: core::cell::Ref<'_, Symbol> = symbol.borrow();
-            let symbol = &*symbol;
-           enum_val_ref!(Symbol, symbol, $target)
+            let shared_sym: SharedSymbol = $scope.borrow().get_symbol($sym);
+            let ref_cell: core::cell::Ref<'_, Symbol> = shared_sym.borrow();
+            let data = &*ref_cell;
+            let data = enum_val_ref!(Symbol, data, $target);
         }
     };
-    (($scope:ident => $sym:expr) as mut $target:ident) => {
+    (($scope:ident => $sym:expr) as mut $target:ident, $name:ident => $code:block) => {
         {
             #[allow(unused_imports)]
             use crate::scope::Symbol;
@@ -300,10 +302,11 @@ macro_rules! symbol {
             #[allow(unused_imports)]
             use crate::scope::SharedSymbol;
 
-            let symbol: SharedSymbol = $scope.borrow().get_symbol($sym);
-            let symbol: core::cell::RefMut<'_, Symbol> = symbol.borrow_mut();
-            let symbol = &mut *symbol;
-           enum_val_ref_mut!(Symbol, symbol, $target)
+            let shared_sym: SharedSymbol = $scope.borrow().get_symbol($sym);
+            let mut ref_cell: core::cell::RefMut<'_, Symbol> = shared_sym.borrow_mut();
+            let data = &mut *ref_cell;
+            let $name = enum_val_ref_mut!(Symbol, data, $target);
+            $code
         }
     };
 }
