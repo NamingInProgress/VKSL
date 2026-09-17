@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::parser::ast::{MethodDeclStmt, StructField};
 use crate::parser::ast::ty::PrimitiveType;
 use crate::scope::ast::expr::Expr;
-use crate::scope::SymbolId;
+use crate::scope::ast::stmt::MethodDeclStmt;
+use crate::scope::{SharedScope, SymbolId};
 use crate::token::TokCtx;
 
 pub type SharedType = Rc<RefCell<Type>>;
@@ -69,6 +69,8 @@ impl Eq for StructRef {}
 #[derive(Clone, Debug)]
 pub struct StructDef {
     pub sym: SymbolId,
+    pub scope: SharedScope,
+    pub methods: Vec<MethodDeclStmt>,
     pub struct_tkn: TokCtx,
     pub name_tkn: TokCtx,
     pub brace1_tkn: TokCtx,

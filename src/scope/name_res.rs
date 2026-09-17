@@ -40,6 +40,8 @@ fn make_var(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::VarDe
         mods: ResMods::empty(),
         semi_tkn: stmt.semi_tkn,
         cnst: stmt.cnst,
+        is_currently_being_visited: false,
+        constant: None,
     })))
 }
 
@@ -98,6 +100,8 @@ fn make_input(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::Inp
         mods: stmt.mods,
         semi_tkn: stmt.semi_tkn,
         cnst: false,
+        is_currently_being_visited: false,
+        constant: None,
     })))
 }
 
@@ -113,6 +117,8 @@ fn make_output(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::Ou
         mods: ResMods::empty(),
         semi_tkn: stmt.semi_tkn,
         cnst: false,
+        is_currently_being_visited: false,
+        constant: None,
     })))
 }
 
@@ -128,6 +134,8 @@ fn make_provide(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::P
         mods: stmt.mods,
         semi_tkn: stmt.semi_tkn,
         cnst: false,
+        is_currently_being_visited: false,
+        constant: None,
     })))
 }
 
@@ -143,6 +151,8 @@ fn make_push_const(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast
         mods: ResMods::empty(),
         semi_tkn: stmt.semi_tkn,
         cnst: false,
+        is_currently_being_visited: false,
+        constant: None,
     })))
 }
 
@@ -165,7 +175,7 @@ fn make_uniform(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::U
     })))
 }
 
-fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast::StructStmt) -> Result<SharedScope> {
+fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast::StructStmt) -> Result<(SharedScope, Vec<MethodDeclStmt>)> {
     let Some(struct_scope) = stmt.fut_scope else { critical_error!() };
 
     let mut fields = vec![];
@@ -180,10 +190,16 @@ fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
     }
 
     let mut methods = vec![];
+    let mut method_decls = vec![];
     for method in stmt.methods {
         let Some(f_id) = method.symbol_id else { critical_error!() };
-        make_fn(f_id, &struct_scope, method)?;
+        let (scope, block) = make_fn(f_id, &struct_scope, method)?;
         methods.push(f_id);
+        method_decls.push(MethodDeclStmt {
+            symbol,
+            scope,
+            block: Box::new(block),
+        })
     }
 
     let guard = current_scope.borrow_mut();
@@ -203,7 +219,7 @@ fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
     })));
 
     guard.insert_symbol(symbol, data);
-    Ok(struct_scope)
+    Ok((struct_scope, method_decls))
 }
 
 pub(crate) fn make_symbol<F: FnOnce(SymbolId) -> Result<Symbol>>(ident: PIdent, current_scope: &SharedScope, generator: F) -> Result<SymbolId> {
@@ -383,10 +399,11 @@ pub fn conv_stmt(stmt: PStmt, current_scope: &SharedScope) -> Result<Stmt> {
         }
         PStmt::Struct(s) => {
             let symbol = s.symbol_id.expect("first pass must have already added all struct symbol ids");
-            let scope = make_struct(symbol, current_scope, s)?;
+            let (scope, methods) = make_struct(symbol, current_scope, s)?;
             Stmt::Struct(StructStmt {
                 symbol,
-                scope
+                scope,
+                methods,
             })
         }
         PStmt::Block(s) => {
@@ -704,12 +721,20 @@ pub fn conv_type(ty: PType, current_scope: &SharedScope) -> Result<Type> {
             })
         }
         PType::StructDef(def) => {
+            let sym = def.inner.symbol_id.expect("first pass must have already added all struct symbol ids");
+            let struct_tkn = def.inner.struct_tkn.clone();
+            let name_tkn = def.inner.name.tkn.clone();
+            let brace1_tkn = def.inner.brace1_tkn.clone();
+            let brace2_tkn = def.inner.brace2_tkn.clone();
+            let (scope, methods) = make_struct(sym, current_scope, *def.inner)?;
             Type::StructDef(StructDef {
-                sym: def.inner.symbol_id.expect("first pass must have already added all struct symbol ids"),
-                struct_tkn: def.inner.struct_tkn,
-                name_tkn: def.inner.name.tkn,
-                brace1_tkn: def.inner.brace1_tkn,
-                brace2_tkn: def.inner.brace2_tkn
+                sym,
+                scope,
+                methods,
+                struct_tkn,
+                name_tkn,
+                brace1_tkn,
+                brace2_tkn
             })
         }
     })

@@ -1,11 +1,10 @@
-use mvutils::enum_val_ref_mut;
 use crate::{parser, symbol};
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::scope::ast::Ast;
 use crate::scope::ast::expr::{Expr, LitExpr};
-use crate::scope::ast::stmt::{ExprStmt, MethodDeclStmt, Stmt};
+use crate::scope::ast::stmt::{ExprStmt, Stmt};
 use crate::scope::ast::ty::Type;
-use crate::scope::{SharedScope, Symbol};
+use crate::scope::{SharedScope};
 use crate::token::{Literal, Operator, TokCtx};
 
 pub fn collapse_constants(mut ast: Ast, scope: &SharedScope) -> parser::Result<Ast> {
@@ -199,7 +198,82 @@ fn handle_block<I: IntoIterator<Item=Stmt>>(block: I, scope: &SharedScope) -> pa
 }
 
 fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
-    todo!()
+    match ty {
+        Type::Primitive(p) => Ok(Type::Primitive(p)),
+        Type::ArrayOf(mut a) => {
+            if let Some(dim) = a.dimension.take() {
+                let value = handle_const_expr(*dim, scope)?;
+                if let Expr::Literal(lit) = value {
+                    if let Literal::UIntLit(i) = lit.lit {
+                        a.evaluated = Some(i);
+                        a.dimension = Some(Box::new(Expr::Literal(lit)));
+                        Ok(Type::ArrayOf(a))
+                    } else {
+                        Err(ParseErr {
+                            ty: ParseErrType::IllegalArrayDim,
+                            ctx: a.brack1_tkn,
+                            hint: Some("Try replacing the array dimension with a constant that evaluates to an unsigned integer like `12u + 10u`".to_string())
+                        })
+                    }
+                } else {
+                    Err(ParseErr {
+                        ty: ParseErrType::ConstantNotAConstant,
+                        ctx: a.brack1_tkn,
+                        hint: Some("try replacing the array dimension expression with a literal like `51 + (12 - 5 * 3)`".to_string()),
+                    })
+                }
+            } else {
+                Ok(Type::ArrayOf(a))
+            }
+        }
+        Type::StructRef(s) => {
+            // in theory if we have a ref to a struct, we must have a def of it somewhere, so it must have already been processed
+            Ok(Type::StructRef(s))
+        }
+        Type::StructDef(mut s) => {
+            let struct_scope = &s.scope;
+            symbol!((scope => s.sym) as mut Struct, sym => {
+                for field in &sym.fields {
+                    symbol!((struct_scope => *field) as mut Variable, field_sym => {
+                        field_sym.ty = Some(handle_type(field_sym.ty.take().expect("struct fields must have type"), struct_scope)?);
+                    });
+                }
+
+                let mut new_methods = Vec::with_capacity(s.methods.len());
+                for mut meth_body in s.methods.drain(..) {
+                    let sub_scope = &meth_body.scope;
+                    symbol!((scope => meth_body.symbol) as mut Function, sym => {
+                        for field in &sym.params {
+                            symbol!((sub_scope => *field) as mut Variable, field_sym => {
+                                if let Some(ty) = field_sym.ty.take() {
+                                    field_sym.ty = Some(handle_type(ty, sub_scope)?);
+                                }
+                            });
+                        }
+                        if let Some(ty) = sym.return_type.take() {
+                            sym.return_type = Some(handle_type(ty, sub_scope)?);
+                        }
+
+                        meth_body.block = Box::new(handle_stmt(*meth_body.block, scope)?);
+                        new_methods.push(meth_body);
+                    });
+                }
+
+                s.methods = new_methods;
+            });
+
+            Ok(Type::StructDef(s))
+        }
+        Type::Tuple(mut t) => {
+            let mut new_types = Vec::with_capacity(t.types.len());
+            for (ty, tok) in t.types.drain(..) {
+                let new_ty = handle_type(ty, scope)?;
+                new_types.push((new_ty, tok));
+            }
+            t.types = new_types;
+            Ok(Type::Tuple(t))
+        }
+    }
 }
 
 fn handle_non_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
