@@ -277,7 +277,130 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
 }
 
 fn handle_non_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
-    todo!()
+    match expr {
+        Expr::Unary(mut u) => {
+            u.expr = Box::new(handle_non_const_expr(*u.expr, scope)?);
+            Ok(Expr::Unary(u))
+        }
+        Expr::Binary(mut b) => {
+            b.lhs = Box::new(handle_non_const_expr(*b.lhs, scope)?);
+            b.rhs = Box::new(handle_non_const_expr(*b.rhs, scope)?);
+            Ok(Expr::Binary(b))
+        }
+        Expr::FnCall(mut f) => {
+            let mut new_args = Vec::with_capacity(f.args.len());
+            for (arg, tok) in f.args.drain(..) {
+                let new_arg = handle_non_const_expr(arg, scope)?;
+                new_args.push((new_arg, tok));
+            }
+            f.args = new_args;
+            Ok(Expr::FnCall(f))
+        }
+        Expr::Access(mut a) => {
+            a.parent = Box::new(handle_non_const_expr(*a.parent, scope)?);
+            Ok(Expr::Access(a))
+        }
+        Expr::Variable(v) => {
+            Ok(Expr::Variable(v))
+        }
+        Expr::Literal(l) => {
+            Ok(Expr::Literal(l))
+        }
+        Expr::Index(mut i) => {
+            i.array = Box::new(handle_non_const_expr(*i.array, scope)?);
+            i.index = Box::new(handle_non_const_expr(*i.index, scope)?);
+            Ok(Expr::Index(i))
+        }
+        Expr::Ternary(mut t) => {
+            t.cond = Box::new(handle_non_const_expr(*t.cond, scope)?);
+            t.yes = Box::new(handle_non_const_expr(*t.yes, scope)?);
+            t.no = Box::new(handle_non_const_expr(*t.no, scope)?);
+            Ok(Expr::Ternary(t))
+        }
+        Expr::PreFix(mut p) => {
+            p.expr = Box::new(handle_non_const_expr(*p.expr, scope)?);
+            Ok(Expr::PreFix(p))
+        }
+        Expr::PostFix(mut p) => {
+            p.expr = Box::new(handle_non_const_expr(*p.expr, scope)?);
+            Ok(Expr::PostFix(p))
+        }
+        Expr::Tuple(mut t) => {
+            let mut new_args = Vec::with_capacity(t.args.len());
+            for (arg, tok) in t.args.drain(..) {
+                let new_arg = handle_non_const_expr(arg, scope)?;
+                new_args.push((new_arg, tok));
+            }
+            t.args = new_args;
+            Ok(Expr::Tuple(t))
+        }
+        Expr::Array(mut a) => {
+            let mut new_args = Vec::with_capacity(a.args.len());
+            for (arg, tok) in a.args.drain(..) {
+                let new_arg = handle_non_const_expr(arg, scope)?;
+                new_args.push((new_arg, tok));
+            }
+            a.args = new_args;
+            Ok(Expr::Array(a))
+        }
+        Expr::Block(mut b) => {
+            let mut new_stmts = Vec::with_capacity(b.block.len());
+            for stmt in b.block.drain(..) {
+                new_stmts.push(handle_stmt(stmt, &b.scope)?);
+            }
+            b.block = new_stmts;
+            Ok(Expr::Block(b))
+        }
+        Expr::Assign(mut a) => {
+            a.lhs = Box::new(handle_non_const_expr(*a.lhs, scope)?);
+            a.rhs = Box::new(handle_non_const_expr(*a.rhs, scope)?);
+            Ok(Expr::Assign(a))
+        }
+        Expr::Nonuniform(mut n) => {
+            n.expr = Box::new(handle_non_const_expr(*n.expr, scope)?);
+            Ok(Expr::Nonuniform(n))
+        }
+        Expr::TupleAccess(mut t) => {
+            t.tuple = Box::new(handle_non_const_expr(*t.tuple, scope)?);
+            Ok(Expr::TupleAccess(t))
+        }
+        Expr::AccessFnCall(mut a) => {
+            a.parent = Box::new(handle_non_const_expr(*a.parent, scope)?);
+            let mut new_args = Vec::with_capacity(a.args.len());
+            for (arg, tok) in a.args.drain(..) {
+                let new_arg = handle_non_const_expr(arg, scope)?;
+                new_args.push((new_arg, tok));
+            }
+            a.args = new_args;
+            Ok(Expr::AccessFnCall(a))
+        }
+        Expr::This(t) => {
+            Ok(Expr::This(t))
+        }
+        Expr::As(mut a) => {
+            a.expr = Box::new(handle_non_const_expr(*a.expr, scope)?);
+            a.target_ty = handle_type(a.target_ty, scope)?;
+            Ok(Expr::As(a))
+        }
+        Expr::Construct(mut c) => {
+            let mut new_fields = Vec::with_capacity(c.fields.len());
+            for (mut field, tok) in c.fields.drain(..) {
+                field.expr = Box::new(handle_non_const_expr(*field.expr, scope)?);
+                new_fields.push((field, tok));
+            }
+            c.fields = new_fields;
+            Ok(Expr::Construct(c))
+        }
+        Expr::Constructor(mut c) => {
+            let mut new_args = Vec::with_capacity(c.args.len());
+            for (arg, tok) in c.args.drain(..) {
+                let new_arg = handle_non_const_expr(arg, scope)?;
+                new_args.push((new_arg, tok));
+            }
+            c.args = new_args;
+            Ok(Expr::Constructor(c))
+        }
+    }
 }
 
 fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
