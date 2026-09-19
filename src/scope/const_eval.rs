@@ -66,8 +66,8 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
             let sub_scope = &s.scope;
             symbol!((scope => s.symbol) as mut Function, sym => {
                 for field in &sym.params {
-                    symbol!((sub_scope => *field) as mut Variable, field_sym => {
-                        optional_ty!(field_sym, ty, sub_scope);
+                    symbol!((sub_scope => *field) as mut FnParam, field_sym => {
+                        field_sym.ty = handle_type(field_sym.ty.clone(), scope)?;
                     });
                 }
                 optional_ty!(sym, return_type, sub_scope);
@@ -446,8 +446,8 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
         }
         // TODO
         // these are so menacing...
-        Expr::BuiltinFnCall(f) => {}
-        Expr::Access(a) => {}
+        Expr::BuiltinFnCall(f) => {todo!()}
+        Expr::Access(a) => {todo!()}
 
         Expr::Variable(v) => {
             let value = scope.borrow().get_symbol(v.ident.symbol);
@@ -487,10 +487,10 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
             Ok(variable.init.clone().expect("const should have been initialized by now"))
         }
         Expr::Literal(l) => Ok(Expr::Literal(l)),
-        Expr::Index(i) => {}
-        Expr::Ternary(t) => {}
-        Expr::TupleAccess(t) => {}
-        Expr::As(a) => {}
+        Expr::Index(i) => {todo!()}
+        Expr::Ternary(t) => {todo!()}
+        Expr::TupleAccess(t) => {todo!()}
+        Expr::As(a) => {todo!()}
         Expr::Array(a) => {
             let mut args = Vec::with_capacity(a.args.len());
             let mut ty = None;
@@ -698,65 +698,65 @@ impl Lit for LitExpr {
 
 fn apply_bin_op(lhs: impl Lit, op: Operator, op_tok: TokCtx, rhs: impl Lit) -> parser::Result<Literal> {
     todo!()
-    match op {
-        Operator::Assign => {}
-        Operator::Plus => {}
-        Operator::Minus => {}
-        Operator::Mul => {}
-        Operator::Div => {}
-        Operator::Dot => {}
-        Operator::Modulo => {}
-        Operator::PlusPlus => {}
-        Operator::MinusMinus => {}
-        Operator::BitOr => {}
-        Operator::BitAnd => {}
-        Operator::BitXor => {}
-        Operator::BitNegate => {}
-        Operator::Greater => {}
-        Operator::GreaterEq => {}
-        Operator::Less => {}
-        Operator::LessEq => {}
-        Operator::And => {}
-        Operator::Or => {}
-        Operator::EqEq => {}
-        Operator::Neq => {}
-        Operator::Not => {}
-        Operator::Lsh => {}
-        Operator::Rsh => {}
-        Operator::LogicalRsh => {}
-        Operator::Merge => {}
-    }
+    // match op {
+    //     Operator::Assign => {}
+    //     Operator::Plus => {}
+    //     Operator::Minus => {}
+    //     Operator::Mul => {}
+    //     Operator::Div => {}
+    //     Operator::Dot => {}
+    //     Operator::Modulo => {}
+    //     Operator::PlusPlus => {}
+    //     Operator::MinusMinus => {}
+    //     Operator::BitOr => {}
+    //     Operator::BitAnd => {}
+    //     Operator::BitXor => {}
+    //     Operator::BitNegate => {}
+    //     Operator::Greater => {}
+    //     Operator::GreaterEq => {}
+    //     Operator::Less => {}
+    //     Operator::LessEq => {}
+    //     Operator::And => {}
+    //     Operator::Or => {}
+    //     Operator::EqEq => {}
+    //     Operator::Neq => {}
+    //     Operator::Not => {}
+    //     Operator::Lsh => {}
+    //     Operator::Rsh => {}
+    //     Operator::LogicalRsh => {}
+    //     Operator::Merge => {}
+    // }
 }
 
 
 fn apply_un_op(lhs: impl Lit, op: Operator, ctx: TokCtx) -> parser::Result<Literal> {
     todo!()
-    match op {
-        Operator::Assign => {}
-        Operator::Plus => {}
-        Operator::Minus => {}
-        Operator::Mul => {}
-        Operator::Div => {}
-        Operator::Dot => {}
-        Operator::Modulo => {}
-        Operator::PlusPlus => {}
-        Operator::MinusMinus => {}
-        Operator::BitOr => {}
-        Operator::BitAnd => {}
-        Operator::BitXor => {}
-        Operator::BitNegate => {}
-        Operator::Greater => {}
-        Operator::GreaterEq => {}
-        Operator::Less => {}
-        Operator::LessEq => {}
-        Operator::And => {}
-        Operator::Or => {}
-        Operator::EqEq => {}
-        Operator::Neq => {}
-        Operator::Not => {}
-        Operator::Lsh => {}
-        Operator::Rsh => {}
-        Operator::LogicalRsh => {}
-        Operator::Merge => {}
-    }
+    // match op {
+    //     Operator::Assign => {}
+    //     Operator::Plus => {}
+    //     Operator::Minus => {}
+    //     Operator::Mul => {}
+    //     Operator::Div => {}
+    //     Operator::Dot => {}
+    //     Operator::Modulo => {}
+    //     Operator::PlusPlus => {}
+    //     Operator::MinusMinus => {}
+    //     Operator::BitOr => {}
+    //     Operator::BitAnd => {}
+    //     Operator::BitXor => {}
+    //     Operator::BitNegate => {}
+    //     Operator::Greater => {}
+    //     Operator::GreaterEq => {}
+    //     Operator::Less => {}
+    //     Operator::LessEq => {}
+    //     Operator::And => {}
+    //     Operator::Or => {}
+    //     Operator::EqEq => {}
+    //     Operator::Neq => {}
+    //     Operator::Not => {}
+    //     Operator::Lsh => {}
+    //     Operator::Rsh => {}
+    //     Operator::LogicalRsh => {}
+    //     Operator::Merge => {}
+    // }
 }

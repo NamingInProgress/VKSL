@@ -305,7 +305,6 @@ pub fn generate_dummy_expression() -> String {
     let mut rng = rand::rng();
 
     fn expr(rng: &mut impl Rng, depth: usize) -> String {
-        // More likely to terminate as the tree gets deeper.
         let terminate_chance = match depth {
             0 => 0.10,
             1 => 0.20,
@@ -319,7 +318,6 @@ pub fn generate_dummy_expression() -> String {
             return rng.random_range(0..100).to_string();
         }
 
-        // Occasionally produce a unary expression.
         if rng.random_bool(0.08) {
             let operand = expr(rng, depth + 1);
 
@@ -339,7 +337,6 @@ pub fn generate_dummy_expression() -> String {
 
         let expression = format!("{left} {op} {right}");
 
-        // Don't necessarily wrap every expression.
         if rng.random_bool(0.65) {
             format!("({expression})")
         } else {

@@ -705,7 +705,7 @@ parenthesized_expression ::= "(" expression ")"
 ```
 ### 5.2 Operators
 
-TODO:
+TODO (contributors may contribute):
 5. Expressions
    5.1 Primary Expressions
        5.1.1 Identifiers

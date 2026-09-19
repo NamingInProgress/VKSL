@@ -89,7 +89,9 @@ impl Display for ArrayType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut data = self.component.to_string();
         data.push('[');
-        if let Some(dim) = &self.dimension {
+        if let Some(evaluated) = self.evaluated {
+            data.push_str(&*evaluated.to_string());
+        } else if let Some(dim) = &self.dimension {
             data.push_str(&format!("{dim:?}"));
         } else if let Some(dim) = &self.default_size {
             data.push_str(&format!("default {}", *dim));
