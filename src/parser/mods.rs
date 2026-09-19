@@ -20,7 +20,8 @@ pub enum Modifier {
     Readonly,
     Writeonly,
     STD140,
-    STD430
+    STD430,
+    Static,
 }
 
 impl Display for Modifier {
@@ -37,6 +38,7 @@ impl Display for Modifier {
             Modifier::Writeonly => "writeonly",
             Modifier::STD140 => "std140",
             Modifier::STD430 => "std430",
+            Modifier::Static => "static",
         }.to_string();
         write!(f, "{}", str)
     }
@@ -78,7 +80,7 @@ impl<I: Iterator<Item=char>> Parser<I> {
 
         while let Some(token) = self.peek_token()? {
             if let TokenType::Keyword(kw) = token.ty {
-                if kw as u8 <= Modifier::STD430 as u8 {
+                if kw as u8 <= Modifier::Static as u8 {
                     self.unwrap_next()?;
                     let m = unsafe { mem::transmute(kw) };
                     hashset.insert(m, token.ctx);
@@ -95,6 +97,20 @@ impl<I: Iterator<Item=char>> Parser<I> {
 
     pub fn validate_mods(&mut self, mut mods: Mods, usage: ModsUsage) -> parser::Result<ResMods> {
         let mut found = HashMap::new();
+
+        if !usage.allows_static {
+            if let Some(tkn) = mods.mods.get(&Modifier::Static) {
+                let ctx = tkn.clone();
+
+                let e = ParseErr {
+                    ty: ParseErrType::IllegalModifier(Modifier::Static),
+                    ctx,
+                    hint: Some("the static modifier cannot be used outside of UBOs and SSBOs".to_string()),
+                };
+
+                return Err(e);
+            }
+        }
 
         for (rule_key, rule) in usage.rules {
             match rule {
@@ -196,12 +212,18 @@ pub type RuleKey = &'static str;
 
 #[derive(Default)]
 pub struct ModsUsage {
-    rules: Vec<(RuleKey, ModRule)>
+    rules: Vec<(RuleKey, ModRule)>,
+    allows_static: bool,
 }
 
 impl ModsUsage {
     pub fn with_rule(mut self, key: RuleKey, rule: ModRule) -> Self {
         self.rules.push((key, rule));
+        self
+    }
+
+    pub fn allow_static(mut self) -> Self {
+        self.allows_static = true;
         self
     }
 }

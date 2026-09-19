@@ -4,6 +4,7 @@ use crate::parser::ast::{AsExpr, ConstructExpr, FieldInit};
 use crate::parser::ast::ty::PrimitiveType;
 use crate::parser::err::ParseErrType;
 use crate::parser::Parser;
+use crate::parser::types::DefaultRuleset;
 use crate::token::{Keyword, Literal, Operator, Token, TokenType};
 
 impl<I: Iterator<Item = char>> Parser<I> {
@@ -291,7 +292,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             }
             Ok(Token { ty: TokenType::Keyword(Keyword::As), ctx }) => {
                 self.skip();
-                let ty = self.parse_type()?;
+                let ty = self.parse_type(DefaultRuleset::default())?;
                 Ok(Expr::As(AsExpr {
                     expr: Box::new(primary),
                     as_tkn: ctx,

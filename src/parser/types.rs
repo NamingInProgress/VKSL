@@ -16,12 +16,32 @@ pub struct NTD {
     pub colon_tk: Option<TokCtx>,
 }
 
+pub const ALLOWS_DEFAULT_TYPES: [&str; 12] = ["image1D", "image2D", "image3D", "imageCube", "sampler1D", "sampler2D", "sampler3D", "samplerCube", "isampler1D", "isampler2D", "isampler3D", "isamplerCube"];
+
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
+pub enum DefaultRuleset {
+    #[default]
+    Prohibit,
+    PartialStrong,
+    PartialWeak,
+    Full
+}
+
+impl DefaultRuleset {
+    fn downgrade(self) -> Self {
+        match self {
+            DefaultRuleset::PartialStrong => DefaultRuleset::PartialWeak,
+            d => d,
+        }
+    }
+}
+
 impl<I: Iterator<Item = char>> Parser<I> {
-    pub fn parse_name_type_def_single(&mut self, needs_type: bool) -> parser::Result<NTD> {
-        Ok(self.parse_name_type_def(needs_type, false)?.into_iter().next().expect("parse name type def makes sure ts exists"))
+    pub fn parse_name_type_def_single(&mut self, needs_type: bool, default_ruleset: DefaultRuleset) -> parser::Result<NTD> {
+        Ok(self.parse_name_type_def(needs_type, default_ruleset, false)?.into_iter().next().expect("parse name type def makes sure ts exists"))
     }
 
-    pub fn parse_name_type_def(&mut self, needs_type: bool, allow_multiple: bool) -> parser::Result<Vec<NTD>> {
+    pub fn parse_name_type_def(&mut self, needs_type: bool, default_ruleset: DefaultRuleset, allow_multiple: bool) -> parser::Result<Vec<NTD>> {
         let mut names = vec!();
 
         loop {
@@ -33,7 +53,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 }
                 TokenType::Colon => {
                     self.unwrap_next()?;
-                    let ty = self.parse_type()?;
+                    let ty = self.parse_type(default_ruleset)?;
 
                     if !allow_multiple && names.len() > 1 {
                         let converted_lines = names.into_iter()
@@ -69,7 +89,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         )
     }
 
-    pub fn parse_type(&mut self) -> parser::Result<Type> {
+    pub fn parse_type(&mut self, mut default_ruleset: DefaultRuleset) -> parser::Result<Type> {
         let tok = self.unwrap_peek()?;
         let base = match tok.ty {
             TokenType::Ident(start) if matches!(self.peek_token()?, Some(Token { ty: T!(.), .. })) => {
@@ -97,19 +117,24 @@ impl<I: Iterator<Item = char>> Parser<I> {
             TokenType::Ident(ident) => {
                 let tok = self.unwrap_next()?;
                 if let Ok(prim) = PrimitiveType::from_str(&ident) {
+                    default_ruleset = default_ruleset.downgrade();
                     Type::Primitive(prim, tok.ctx)
                 } else {
+                    if !ALLOWS_DEFAULT_TYPES.contains(&ident.as_str()) {
+                        default_ruleset = default_ruleset.downgrade();
+                    }
                     Type::SingleType(SingleType{ name: ident, tkn: tok.ctx } )
                 }
             }
             TokenType::Keyword(Keyword::Struct) => {
-                let strct = self.parse_struct()?;
+                default_ruleset = default_ruleset.downgrade();
+                let strct = self.parse_struct(default_ruleset)?;
                 let strct = enum_val!(Stmt, strct, Struct);
                 Type::StructDef(StructType{ inner: Box::new(strct) })
             }
             T!('(') => {
                 let paren1_tok = self.unwrap_next()?;
-                let types = self.parse_punctuated(T!(,), T!(')'), false, |p| p.parse_type());
+                let types = self.parse_punctuated(T!(,), T!(')'), false, |p| p.parse_type(default_ruleset));
                 let types = types.try_collect()?;
                 let paren2_tok = self.expect_next(Te!(')'))?;
                 Type::TupleOf(TupleType {
@@ -128,24 +153,49 @@ impl<I: Iterator<Item = char>> Parser<I> {
             }
         };
 
-        self.handle_type(base)
+        self.handle_type(base, default_ruleset)
     }
 
-    fn handle_type(&mut self, ty: Type) -> parser::Result<Type> {
+    fn handle_type(&mut self, ty: Type, default_ruleset: DefaultRuleset) -> parser::Result<Type> {
         if let Some(tok) = self.peek_token()? {
             if tok.ty == TokenType::LBracket {
                 self.unwrap_next()?;
-                let dim = if let Some(maybe_num) = self.peek_token()? {
+                let (dim, default_size, default_kw_tkn, default_size_tkn) = if let Some(maybe_num) = self.peek_token()? {
                     match maybe_num.ty {
                         T!(']') => {
-                            None
-                        }
+                            if matches!(default_ruleset, DefaultRuleset::Full | DefaultRuleset::PartialStrong) {
+                                return Err(ParseErr {
+                                    ty: ParseErrType::ArraySizeRequired(true),
+                                    ctx: maybe_num.ctx,
+                                    hint: Some(format!("Add a definite array size, or specify a default size for the runtime size array: `{ty}[default 10]`")),
+                                })
+                            } else if matches!(default_ruleset, DefaultRuleset::PartialWeak) {
+                                return Err(ParseErr {
+                                    ty: ParseErrType::ArraySizeRequired(false),
+                                    ctx: maybe_num.ctx,
+                                    hint: Some(format!("Add a definite array size: `{ty}[10]`")),
+                                })
+                            }
+                            (None, None, None, None)
+                        },
+                        TokenType::Ident(i) if default_ruleset != DefaultRuleset::Prohibit && i == "default" => {
+                            let default = self.unwrap_next()?.ctx;
+                            let (num, ctx) = self.expect_non_negative_int()?;
+                            if default_ruleset == DefaultRuleset::PartialWeak {
+                                return Err(ParseErr {
+                                    ty: ParseErrType::DefaultNotAllowed,
+                                    ctx: default,
+                                    hint: Some(format!("remove the `default` keyword from the array length: `{ty}[{num}]`")),
+                                })
+                            }
+                            (None, Some(num), Some(default), Some(ctx))
+                        },
                         _ => {
-                            Some(Box::new(self.parse_expr()?))
+                            (Some(Box::new(self.parse_expr()?)), None, None, None)
                         },
                     }
                 } else {
-                    None
+                    (None, None, None, None)
                 };
 
                 let brack2_tkn = self.expect_next(Te![']'])?;
@@ -154,7 +204,10 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     brack1_tkn: tok.ctx,
                     dimension: dim,
                     brack2_tkn: brack2_tkn.ctx,
-                }));
+                    default_size,
+                    default_size_tkn,
+                    default_kw_tkn
+                }), default_ruleset);
             }
         }
 

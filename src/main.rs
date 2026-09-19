@@ -25,15 +25,15 @@ fn main() {
         let tokens = Tokenizer::new(source, Some(Path::new("simple.vksl").into()));
         let parser = Parser::new(tokens);
         let mut result = parser.parse()?;
-        let global_scope = struct_res::handle_ast(&mut result)?;
-        let result = name_res::conv_ast(result, global_scope.clone())?;
+        // let global_scope = struct_res::handle_ast(&mut result)?;
+        // let result = name_res::conv_ast(result, global_scope.clone())?;
         for stmt in result {
             println!("{stmt:#?}");
         }
-    
-        println!("=======");
-        let g = global_scope.borrow();
-        println!("{:#?}", g.symbols);
+        //
+        // println!("=======");
+        // let g = global_scope.borrow();
+        // println!("{:#?}", g.symbols);
     
         Ok(())
     }

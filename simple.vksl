@@ -1,3 +1,6 @@
-const a: int = 5;
+uniform set = 0 binding = 0 camera: struct Camera {
+    projection, view: mat4;
+    position: vec3[10];
+};
 
-let b = a;
+uniform set = 1 binding = 0 test: sampler2D[default 10];

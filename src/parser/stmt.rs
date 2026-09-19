@@ -6,7 +6,9 @@ use crate::parser::Parser;
 use crate::token::{Keyword, Operator, TokenType};
 use crate::{parser, Te, T};
 use mvutils::enum_val;
-use crate::parser::err::ParseErrType;
+use crate::parser::ast::ArrayType;
+use crate::parser::err::{ParseErr, ParseErrType};
+use crate::parser::types::{DefaultRuleset, ALLOWS_DEFAULT_TYPES};
 
 impl<I: Iterator<Item = char>> Parser<I> {
     pub fn parse_stmt(&mut self) -> parser::Result<Stmt> {
@@ -41,7 +43,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             Keyword::Provide => self.parse_shader_input(true),
             Keyword::Output => self.parse_shader_output(),
             Keyword::Fn => self.parse_method_decl(),
-            Keyword::Struct => self.parse_struct(),
+            Keyword::Struct => self.parse_struct(DefaultRuleset::default()),
             Keyword::Uniform => self.parse_uniform_decl(),
             Keyword::PushConstants => self.parse_push_constants(),
             Keyword::Extension => self.parse_extension(),
@@ -216,7 +218,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             tk = self.expect_next(Te!(let))?.ctx;
         }
 
-        let ntd = self.parse_name_type_def(cnst, true)?;
+        let ntd = self.parse_name_type_def(cnst, DefaultRuleset::default(), true)?;
 
         let mut init = None;
         let mut eq_tkn = None;
@@ -286,7 +288,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
     pub fn parse_push_constants(&mut self) -> parser::Result<Stmt> {
         let pc_tkn = self.expect_next(Te!(push_constants))?.ctx;
 
-        let ntd = self.parse_name_type_def_single(true)?;
+        let ntd = self.parse_name_type_def_single(true, DefaultRuleset::default())?;
         let name = ntd.name;
         let ty = ntd.ty.unwrap();
 
@@ -315,7 +317,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         let ssbo = self.check_next(Te!(buffer))?;
         if ssbo { self.unwrap_next()?; }
 
-        let ntd = self.parse_name_type_def_single(true)?;
+        let ntd = self.parse_name_type_def_single(true, if ssbo { DefaultRuleset::Full } else { DefaultRuleset::PartialStrong })?;
         let name = ntd.name;
         let ty = ntd.ty.unwrap();
 
@@ -324,7 +326,8 @@ impl<I: Iterator<Item = char>> Parser<I> {
         if ssbo {
             let usage = ModsUsage::default()
                 .with_rule("packing_type", ModRule::EitherOr(vec![Modifier::STD140, Modifier::STD430]))
-                .with_rule("access", ModRule::EitherOr(vec![Modifier::Readonly, Modifier::Writeonly]));
+                .with_rule("access", ModRule::EitherOr(vec![Modifier::Readonly, Modifier::Writeonly]))
+                .allow_static();
 
             let resolved = self.validate_mods(mods, usage)?;
             Ok(
@@ -352,7 +355,8 @@ impl<I: Iterator<Item = char>> Parser<I> {
             )
         } else if let Type::StructDef(_) = ty {
             let usage = ModsUsage::default()
-                .with_rule("packing_type", ModRule::EitherOr(vec![Modifier::STD140, Modifier::STD430]));
+                .with_rule("packing_type", ModRule::EitherOr(vec![Modifier::STD140, Modifier::STD430]))
+                .allow_static();
 
             let resolved = self.validate_mods(mods, usage)?;
             Ok(
@@ -415,7 +419,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
 
         let mut next = self.unwrap_peek()?;
         while next.ty != TokenType::RParen {
-            let param = self.parse_name_type_def(true, false)?.into_iter().next().unwrap();
+            let param = self.parse_name_type_def(true, DefaultRuleset::default(), false)?.into_iter().next().unwrap();
 
             next = self.unwrap_peek()?;
             let mut comma = None;
@@ -442,7 +446,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
 
         if let TokenType::Operator(Operator::Merge) = self.unwrap_peek()?.ty {
             arrow_tkn = Some(self.unwrap_next()?.ctx);
-            return_type = Some(self.parse_type()?);
+            return_type = Some(self.parse_type(DefaultRuleset::default())?);
         }
 
         let block = self.parse_block()?;
@@ -485,7 +489,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
 
     pub fn parse_shader_output(&mut self) -> parser::Result<Stmt> {
         let output_tkn = self.expect_next(Te!(output))?.ctx;
-        let ntd = self.parse_name_type_def_single(true)?;
+        let ntd = self.parse_name_type_def_single(true, DefaultRuleset::default())?;
 
         Ok(
             OutputStmt {
@@ -502,7 +506,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         let tkn = self.expect_next(Te!(input))?.ctx;
         let mods = self.parse_mods()?;
 
-        let ntd = self.parse_name_type_def_single(true)?;
+        let ntd = self.parse_name_type_def_single(true, DefaultRuleset::default())?;
         let name = ntd.name;
         let ty = ntd.ty.unwrap();
 
@@ -535,7 +539,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         }
     }
 
-    pub fn parse_struct(&mut self) -> parser::Result<Stmt> {
+    pub fn parse_struct(&mut self, default_ruleset: DefaultRuleset) -> parser::Result<Stmt> {
         let struct_tkn = self.expect_next(Te!(struct))?;
         let name = self.expect_ident()?;
         let brack1 = self.expect_next(Te!('{'))?;
@@ -549,7 +553,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 let meth = enum_val!(Stmt, meth, MethodDecl);
                 meths.push(meth);
             } else {
-                let ntds = self.parse_name_type_def(true, true)?;
+                let ntds = self.parse_name_type_def(true, default_ruleset, true)?;
                 let semi = self.expect_semi()?;
                 for ntd in ntds {
                     if let Some(ty) = ntd.ty {

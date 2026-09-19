@@ -2,7 +2,7 @@ pub mod old;
 pub mod ast;
 pub mod name_res;
 pub mod struct_res;
-pub mod const_eval;
+//pub mod const_eval;
 
 use crate::parser;
 use crate::parser::ast::UniformType;

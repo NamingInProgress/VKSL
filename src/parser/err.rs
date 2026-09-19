@@ -54,6 +54,8 @@ pub enum ParseErrType {
     DuplicateStruct(String),
     DuplicateFn(String),
     ConstantNotAConstant,
+    ArraySizeRequired(bool),
+    DefaultNotAllowed,
 }
 
 impl ParseErrType {
@@ -138,6 +140,16 @@ impl ParseErrType {
             ParseErrType::ConstantNotAConstant => {
                 "constant value is not constantly evaluatable".to_string()
             }
+            ParseErrType::ArraySizeRequired(allow_default) => {
+                if *allow_default {
+                    "arrays within an SSBO or primitive uniform must either have a default size or definite size".to_string()
+                } else {
+                    "arrays within a UBO must have a definite size".to_string()
+                }
+            }
+            ParseErrType::DefaultNotAllowed => {
+                "arrays within a UBO do not support default size, and must instead have a definite size".to_string()
+            }
         }
     }
 
@@ -168,6 +180,8 @@ impl ParseErrType {
             ParseErrType::DuplicateStruct(_) => "duplicate struct".to_string(),
             ParseErrType::DuplicateFn(_) => "duplicate function".to_string(),
             ParseErrType::ConstantNotAConstant => "inevaluatable constant".to_string(),
+            ParseErrType::ArraySizeRequired(_) => "array without size definition".to_string(),
+            ParseErrType::DefaultNotAllowed => "illegal use of default".to_string(),
         }
     }
 }

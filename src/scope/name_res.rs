@@ -707,6 +707,9 @@ pub fn conv_type(ty: PType, current_scope: &SharedScope) -> Result<Type> {
                 dimension: conv_expr_opt_box(arr.dimension, current_scope)?,
                 evaluated: None,
                 brack2_tkn: arr.brack2_tkn,
+                default_size: arr.default_size,
+                default_size_tkn: arr.default_size_tkn,
+                default_kw_tkn: arr.default_kw_tkn,
             })
         }
         PType::TupleOf(tup) => {

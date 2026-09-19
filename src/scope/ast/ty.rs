@@ -38,6 +38,9 @@ pub struct ArrayType {
     pub dimension: Option<Box<Expr>>,
     pub evaluated: Option<u32>,
     pub brack2_tkn: TokCtx,
+    pub default_size: Option<u32>,
+    pub default_size_tkn: Option<TokCtx>,
+    pub default_kw_tkn: Option<TokCtx>,
 }
 
 impl PartialEq for ArrayType {

@@ -89,6 +89,9 @@ pub struct ArrayType {
     pub brack1_tkn: TokCtx,
     pub dimension: Option<Box<Expr>>,
     pub brack2_tkn: TokCtx,
+    pub default_size: Option<u32>,
+    pub default_size_tkn: Option<TokCtx>,
+    pub default_kw_tkn: Option<TokCtx>,
 }
 
 impl Display for ArrayType {

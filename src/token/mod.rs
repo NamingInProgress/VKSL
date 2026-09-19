@@ -78,7 +78,10 @@ pub enum Keyword {
     STD140,
     #[custom("std430")]
     STD430,
-
+    #[casing(Lower)]
+    Static,
+    
+    // END OF MODIFIERS
     #[casing(Lower)]
     Fn,
     #[casing(Lower)]
@@ -228,6 +231,7 @@ impl Display for Keyword {
             Keyword::Writeonly => "writeonly",
             Keyword::STD140 => "std140",
             Keyword::STD430 => "std430",
+            Keyword::Static => "static",
             Keyword::Fn => "fn",
             Keyword::Struct => "struct",
             Keyword::If => "if",
