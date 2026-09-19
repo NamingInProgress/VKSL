@@ -1,14 +1,15 @@
 use crate::{critical_error, parser};
 use crate::parser::mods::ResMods;
-use crate::scope::ast::expr::{AccessExpr, AccessFnCallExpr, ArrayExpr, AsExpr, AssignExpr, BinExpr, BlockExpr, ConstructExpr, ConstructorExpr, Expr, FieldInit, FnCallExpr, IndexExpr, LitExpr, NonuniformExpr, PostFixExpr, PreFixExpr, TernaryExpr, ThisExpr, TupleAccessExpr, TupleExpr, UnaryExpr, VarExpr};
+use crate::scope::ast::expr::{AccessExpr, AccessFnCallExpr, ArrayExpr, AsExpr, AssignExpr, BinExpr, BlockExpr, BuiltinFnCallExpr, ConstructExpr, ConstructorExpr, Expr, FieldInit, FnCallExpr, IndexExpr, LitExpr, NonuniformExpr, PostFixExpr, PreFixExpr, TernaryExpr, ThisExpr, TupleAccessExpr, TupleExpr, UnaryExpr, VarExpr};
 use crate::scope::ast::stmt::{BlockStmt, BreakStmt, CompoundStmt, ConstDeclStmt, ContinueStmt, ExprStmt, ExtensionStmt, ForStmt, IfStmt, InputStmt, MethodDeclStmt, OutputStmt, ProvideStmt, PushConstantsStmt, ReturnStmt, SemiStmt, Stmt, StructStmt, UniformStmt, VarDeclStmt, WhileStmt, YieldStmt};
 use crate::scope::ast::ty::{ArrayType, PrimitiveRef, StructDef, StructRef, TupleDef, Type};
 use crate::scope::ast::{Ast, Ident};
 use crate::scope::{FieldSym, FnParamSym, FnSym, SharedScope, StructSym, Symbol, SymbolId, SymbolSpecies, UniformSym, VarSym, COUNTER_ID};
-use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
 use mvutils::enum_val_ref;
+use mvutils::unsafe_utils::DangerousCell;
+use crate::scope::builtins::BUILTIN_FNS;
 
 pub type Result<T> = parser::Result<T>;
 pub type NoResult = parser::Result<()>;
@@ -18,7 +19,7 @@ type PExpr = parser::ast::Expr;
 type PIdent = parser::ast::Ident;
 type PType = parser::ast::Type;
 
-pub fn conv_ast(ast: parser::ast::Ast, global_scope: SharedScope) -> Result<Vec<Stmt>> {
+pub fn conv_ast(ast: parser::ast::Ast, global_scope: SharedScope) -> Result<Ast> {
     let mut new_ast = vec![];
 
     for s in ast {
@@ -42,7 +43,34 @@ fn make_var(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::VarDe
         cnst: stmt.cnst,
         is_currently_being_visited: false,
         constant: None,
+
+        scope: current_scope.clone(),
     })))
+}
+
+fn make_const(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast::VarDeclStmt) -> Result<SymbolId> {
+    let name = stmt.name.val.clone();
+    let data = Symbol::Variable(VarSym {
+        id: symbol,
+        kw_tkn: stmt.kw_tkn,
+        name: Ident::convert(stmt.name, symbol),
+        colon_tkn: stmt.colon_tkn,
+        ty: conv_type_opt(stmt.ty, current_scope)?,
+        eq_tkn: stmt.eq_tkn,
+        init: conv_expr_opt(stmt.init, current_scope)?,
+        mods: ResMods::empty(),
+        semi_tkn: stmt.semi_tkn,
+        cnst: stmt.cnst,
+        is_currently_being_visited: false,
+        constant: None,
+        scope: current_scope.clone(),
+    });
+    let mut guard = current_scope.borrow_mut();
+    let data = Rc::new(DangerousCell::new(data));
+    let entry = guard.by_name.entry(name);
+
+    guard.insert_symbol(symbol, data);
+    Ok(symbol)
 }
 
 pub fn make_fn(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast::MethodDeclStmt) -> Result<(SharedScope, Stmt)> {
@@ -84,7 +112,7 @@ pub fn make_fn(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
         scope: fn_scope.clone(),
     });
 
-    guard.insert_symbol(symbol, Rc::new(RefCell::new(data)));
+    guard.insert_symbol(symbol, Rc::new(DangerousCell::new(data)));
     Ok((fn_scope, block))
 }
 
@@ -102,6 +130,8 @@ fn make_input(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::Inp
         cnst: false,
         is_currently_being_visited: false,
         constant: None,
+
+        scope: current_scope.clone(),
     })))
 }
 
@@ -119,6 +149,8 @@ fn make_output(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::Ou
         cnst: false,
         is_currently_being_visited: false,
         constant: None,
+
+        scope: current_scope.clone(),
     })))
 }
 
@@ -136,6 +168,8 @@ fn make_provide(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast::P
         cnst: false,
         is_currently_being_visited: false,
         constant: None,
+
+        scope: current_scope.clone(),
     })))
 }
 
@@ -153,6 +187,8 @@ fn make_push_const(ident: PIdent, current_scope: &SharedScope, stmt: parser::ast
         cnst: false,
         is_currently_being_visited: false,
         constant: None,
+
+        scope: current_scope.clone(),
     })))
 }
 
@@ -208,7 +244,7 @@ fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
         critical_error!()
     }
 
-    let data = Rc::new(RefCell::new(Symbol::Struct(StructSym {
+    let data = Rc::new(DangerousCell::new(Symbol::Struct(StructSym {
         id: symbol,
         internal_scope: struct_scope.clone(),
         name: Ident::convert(stmt.name, symbol),
@@ -227,7 +263,7 @@ pub(crate) fn make_symbol<F: FnOnce(SymbolId) -> Result<Symbol>>(ident: PIdent, 
     let symbol_id = mvutils::utils::next_id(COUNTER_ID);
     let symbol = generator(symbol_id)?;
     let mut guard = current_scope.borrow_mut();
-    let symbol = Rc::new(RefCell::new(symbol));
+    let symbol = Rc::new(DangerousCell::new(symbol));
     let entry = guard.by_name.entry(name);
     match entry {
         Entry::Occupied(mut oe) => {
@@ -321,13 +357,14 @@ pub fn conv_stmt(stmt: PStmt, current_scope: &SharedScope) -> Result<Stmt> {
             })
         }
         PStmt::VarDecl(s) => {
-            let cnst = s.cnst;
-            let symbol = make_var(s.name.clone(), current_scope, s)?;
-            if cnst {
+            if s.cnst {
+                let Some(symbol) = s.symbol_id else { critical_error!() };
+                let symbol = make_const(symbol, current_scope, s)?;
                 Stmt::ConstDecl(ConstDeclStmt {
                     symbol,
                 })
             } else {
+                let symbol = make_var(s.name.clone(), current_scope, s)?;
                 Stmt::VarDecl(VarDeclStmt {
                     symbol,
                 })
@@ -487,7 +524,16 @@ pub fn conv_expr(expr: PExpr, current_scope: &SharedScope) -> Result<Expr> {
             for (expr, tkn) in e.args {
                 args.push((conv_expr(expr, current_scope)?, tkn))
             }
-            if let Ok(ident) = resolve_ident(e.ident.clone(), current_scope, SymbolSpecies::Type) {
+            if BUILTIN_FNS.contains(&e.ident.val.as_str()) {
+                Expr::BuiltinFnCall(BuiltinFnCallExpr {
+                    name: e.ident.val,
+                    name_tkn: e.ident.tkn,
+                    open_tkn: e.open_tkn,
+                    args,
+                    close_tkn: e.close_tkn,
+                    ty: None,
+                })
+            } else if let Ok(ident) = resolve_ident(e.ident.clone(), current_scope, SymbolSpecies::Type) {
                 Expr::Constructor(ConstructorExpr {
                     ident,
                     open_tkn: e.open_tkn,
@@ -521,7 +567,7 @@ pub fn conv_expr(expr: PExpr, current_scope: &SharedScope) -> Result<Expr> {
         }
         PExpr::Literal(e) => {
             Expr::Literal(LitExpr {
-                lit: e.lit,
+                lit: e.lit.into(),
                 lit_tkn: e.lit_tkn,
                 ty: None,
             })
@@ -657,7 +703,7 @@ pub fn conv_expr(expr: PExpr, current_scope: &SharedScope) -> Result<Expr> {
         PExpr::Construct(s) => {
             let guard = current_scope.borrow();
             let struct_sym = guard.resolve_symbol(&s.name, SymbolSpecies::Type)?;
-            let guard = &*struct_sym.borrow();
+            let guard = struct_sym.get();
             let sym = enum_val_ref!(Symbol, guard, Struct);
             let struct_scope = sym.internal_scope.clone();
 
@@ -694,9 +740,12 @@ pub fn conv_type(ty: PType, current_scope: &SharedScope) -> Result<Type> {
     Ok(match ty {
         PType::Primitive(ty, tkn) => Type::Primitive(PrimitiveRef { ty, tkn }),
         PType::SingleType(ty) => {
+            let debug_name = ty.name.clone();
             Type::StructRef(StructRef {
                 sym: current_scope.borrow().resolve_symbol_id(&ty, SymbolSpecies::Type)?,
-                name_tkn: ty.tkn
+                name_tkn: ty.tkn,
+
+                debug_name,
             })
         },
         PType::PathType(_path) => todo!(),
@@ -724,6 +773,7 @@ pub fn conv_type(ty: PType, current_scope: &SharedScope) -> Result<Type> {
             })
         }
         PType::StructDef(def) => {
+            let debug_name = def.inner.name.val.clone();
             let sym = def.inner.symbol_id.expect("first pass must have already added all struct symbol ids");
             let struct_tkn = def.inner.struct_tkn.clone();
             let name_tkn = def.inner.name.tkn.clone();
@@ -737,7 +787,9 @@ pub fn conv_type(ty: PType, current_scope: &SharedScope) -> Result<Type> {
                 struct_tkn,
                 name_tkn,
                 brace1_tkn,
-                brace2_tkn
+                brace2_tkn,
+
+                debug_name,
             })
         }
     })

@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display, Formatter};
 use itertools::Itertools;
 use crate::parser::ast::ty::PrimitiveType;
 use crate::parser::mods::Modifier;
+use crate::scope::ast::ty::Type;
 
 #[derive(Clone, Debug)]
 pub struct ParseErr {
@@ -37,7 +38,7 @@ pub enum ParseErrType {
     NonBinaryCompatibleOperator(Operator),
     NonUnaryCompatibleOperator(Operator),
     InternalErr,
-    IllegalArrayDim,
+    IllegalArrayDim(Type),
     MissingType,
     NoMultipleNamesPerType,
     MismatchedLiteral(String, String),
@@ -52,10 +53,20 @@ pub enum ParseErrType {
     UnknownIdent(String),
     IllegalTupleAccessLiteral(PrimitiveType),
     DuplicateStruct(String),
+    DuplicateVar(String),
     DuplicateFn(String),
     ConstantNotAConstant,
     ArraySizeRequired(bool),
     DefaultNotAllowed,
+    CyclicalConstant,
+    NotAConstant,
+    TypeError(Type, Type),
+    FunctionInConst,
+    BlockInConst,
+    ThisInConst,
+    ModificationInConst,
+    NotAllowed,
+    ArrayTypeMismatch,
 }
 
 impl ParseErrType {
@@ -89,8 +100,8 @@ impl ParseErrType {
             ParseErrType::InternalErr => {
                 "internal error happened. This is usually unreachable. Please contact the vke team ASAP".to_owned()
             },
-            ParseErrType::IllegalArrayDim => {
-                "illegal literal used to specify static array length".to_string()
+            ParseErrType::IllegalArrayDim(ty) => {
+                format!("type `{}` cannot be used to define an array length", ty)
             },
             ParseErrType::MissingType => {
                 "type annotation is required".to_string()
@@ -134,6 +145,9 @@ impl ParseErrType {
             ParseErrType::DuplicateStruct(ty) => {
                 format!("the struct `{ty}` has been encountered at multiple times!")
             }
+            ParseErrType::DuplicateVar(ty) => {
+                format!("the variable `{ty}` has been encountered at multiple times!")
+            }
             ParseErrType::DuplicateFn(f) => {
                 format!("the function `{f}` has been encountered at multiple times!")
             }
@@ -150,6 +164,33 @@ impl ParseErrType {
             ParseErrType::DefaultNotAllowed => {
                 "arrays within a UBO do not support default size, and must instead have a definite size".to_string()
             }
+            ParseErrType::CyclicalConstant => {
+                "unable to evaluate constant whose definition is cyclical (points to itself)".to_string()
+            }
+            ParseErrType::NotAConstant => {
+                "identifier references a value which isn't a constant inside a constant expression".to_string()
+            }
+            ParseErrType::TypeError(expected, found) => {
+                format!("expected type `{expected}` but found `{found}`")
+            }
+            ParseErrType::FunctionInConst => {
+                "function calls and constructors are not allowed in constant statements".to_string()
+            }
+            ParseErrType::BlockInConst => {
+                "code blocks are currently not supported in constant statements".to_string()
+            }
+            ParseErrType::ThisInConst => {
+                "`this` is not allowed in const statements".to_string()
+            }
+            ParseErrType::ModificationInConst => {
+                "expressions that cause side effects are not allowed in constants".to_string()
+            }
+            ParseErrType::NotAllowed => {
+                "the following code is not allowed for use".to_string()
+            }
+            ParseErrType::ArrayTypeMismatch => {
+                "not all the values in the array are the same type".to_string()
+            }
         }
     }
 
@@ -163,7 +204,7 @@ impl ParseErrType {
             ParseErrType::NonBinaryCompatibleOperator(o) => { format!("invalid use of {o}") }
             ParseErrType::NonUnaryCompatibleOperator(o) => { format!("invalid use of {o}") }
             ParseErrType::InternalErr => "unrecoverable".to_string(),
-            ParseErrType::IllegalArrayDim => "illegal array length".to_string(),
+            ParseErrType::IllegalArrayDim(_) => "illegal array length".to_string(),
             ParseErrType::MissingType => "missing type annotation".to_string(),
             ParseErrType::NoMultipleNamesPerType => { "too many names for type".to_string() },
             ParseErrType::MismatchedLiteral(s, e) => { format!("expected exact literal {s} but got {e}") },
@@ -178,10 +219,20 @@ impl ParseErrType {
             ParseErrType::UnknownIdent(st) => format!("unknown identifier {st}"),
             ParseErrType::IllegalTupleAccessLiteral(_) => "illegal tuple access".to_string(),
             ParseErrType::DuplicateStruct(_) => "duplicate struct".to_string(),
+            ParseErrType::DuplicateVar(_) => "duplicate var".to_string(),
             ParseErrType::DuplicateFn(_) => "duplicate function".to_string(),
             ParseErrType::ConstantNotAConstant => "inevaluatable constant".to_string(),
             ParseErrType::ArraySizeRequired(_) => "array without size definition".to_string(),
             ParseErrType::DefaultNotAllowed => "illegal use of default".to_string(),
+            ParseErrType::CyclicalConstant => "constant used in definition of itself".to_string(),
+            ParseErrType::NotAConstant => "identifier pointing to non-constant".to_string(),
+            ParseErrType::TypeError(_, _) => "invalid type".to_string(),
+            ParseErrType::FunctionInConst => "function call in constant expression".to_string(),
+            ParseErrType::BlockInConst => "code block in constant expression".to_string(),
+            ParseErrType::ThisInConst => "illegal `this` token".to_string(),
+            ParseErrType::ModificationInConst => "side effect causing expression".to_string(),
+            ParseErrType::NotAllowed => "what made you think this would work?".to_string(),
+            ParseErrType::ArrayTypeMismatch => "mismatched array type".to_string(),
         }
     }
 }

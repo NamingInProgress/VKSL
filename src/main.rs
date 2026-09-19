@@ -2,7 +2,7 @@ use crate::token::tokenizer::Tokenizer;
 use mvutils::utils::UnwrapDisplay;
 use parser::Parser;
 use std::path::Path;
-use crate::scope::{name_res, struct_res};
+use crate::scope::{const_eval, name_res, struct_res};
 
 pub mod parser;
 pub mod token;
@@ -25,15 +25,16 @@ fn main() {
         let tokens = Tokenizer::new(source, Some(Path::new("simple.vksl").into()));
         let parser = Parser::new(tokens);
         let mut result = parser.parse()?;
-        // let global_scope = struct_res::handle_ast(&mut result)?;
-        // let result = name_res::conv_ast(result, global_scope.clone())?;
-        for stmt in result {
+        let global_scope = struct_res::handle_ast(&mut result)?;
+        let result = name_res::conv_ast(result, global_scope.clone())?;
+        let const_evaled = const_eval::collapse_constants(result, &global_scope)?;
+        for stmt in const_evaled {
             println!("{stmt:#?}");
         }
-        //
-        // println!("=======");
-        // let g = global_scope.borrow();
-        // println!("{:#?}", g.symbols);
+
+        println!("=======");
+        let g = global_scope.borrow();
+        println!("{:#?}", g.symbols);
     
         Ok(())
     }

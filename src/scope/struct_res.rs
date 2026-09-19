@@ -1,7 +1,7 @@
 use crate::parser;
-use crate::parser::ast::{ExprStmt, MethodDeclStmt, StructStmt};
+use crate::parser::ast::{MethodDeclStmt, StructStmt, VarDeclStmt};
 use crate::parser::err::{ParseErr, ParseErrType};
-use crate::scope::{ResolvedScope, SharedScope, COUNTER_ID};
+use crate::scope::{COUNTER_ID, ResolvedScope, SharedScope};
 use std::collections::hash_map::Entry;
 
 type PAst = parser::ast::Ast;
@@ -69,6 +69,32 @@ fn handle_fn(stmt: &mut MethodDeclStmt, scope: &SharedScope) -> Result<()> {
     Ok(())
 }
 
+fn handle_const(stmt: &mut VarDeclStmt, scope: &SharedScope) -> Result<()> {
+    let name = stmt.name.val.clone();
+    let mut guard = scope.borrow_mut();
+    let symbol_id = mvutils::utils::next_id(COUNTER_ID);
+
+    stmt.symbol_id = Some(symbol_id);
+
+    let entry = guard.by_name.entry(name.clone());
+    match entry {
+        Entry::Occupied(_) => {
+            let hint = format!("consider removing one of the variables `{name}`");
+            let e = ParseErr {
+                ty: ParseErrType::DuplicateVar(name),
+                ctx: stmt.name.tkn.clone(),
+                hint: Some(hint),
+            };
+            return Err(e);
+        }
+        Entry::Vacant(ve) => {
+            ve.insert(symbol_id);
+        }
+    }
+
+    Ok(())
+}
+
 fn handle_type(ty: &mut PType, scope: &SharedScope) -> Result<()> {
     match ty {
         PType::StructDef(sd) => {
@@ -119,6 +145,9 @@ fn handle_stmt(stmt: &mut PStmt, scope: &SharedScope) -> Result<()> {
             handle_stmt(&mut s.block, scope)?;
         }
         PStmt::VarDecl(s) => {
+            if s.cnst {
+                handle_const(s, scope)?;
+            }
             if let Some(ty) = &mut s.ty {
                 handle_type(ty, scope)?;
             }

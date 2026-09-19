@@ -1,9 +1,9 @@
 use enum_dispatch::enum_dispatch;
 use crate::scope::ast::ty::Type;
-use crate::scope::ast::Ident;
+use crate::scope::ast::{Ident, Literal};
 use crate::scope::ast::stmt::Stmt;
 use crate::scope::SharedScope;
-use crate::token::{Literal, Operator, TokCtx};
+use crate::token::{Operator, TokCtx};
 
 #[enum_dispatch(Exprs2)]
 #[allow(unused)]
@@ -15,6 +15,7 @@ pub enum Expr {
     Unary(UnaryExpr),
     Binary(BinExpr),
     FnCall(FnCallExpr),
+    BuiltinFnCall(BuiltinFnCallExpr),
     Access(AccessExpr),
     Variable(VarExpr),
     Literal(LitExpr),
@@ -55,6 +56,16 @@ pub struct BinExpr {
 #[derive(Clone, Debug)]
 pub struct FnCallExpr {
     pub ident: Ident,
+    pub open_tkn: TokCtx,
+    pub args: Vec<(Expr, Option<TokCtx>)>,
+    pub close_tkn: TokCtx,
+    pub ty: Option<Type>
+}
+
+#[derive(Clone, Debug)]
+pub struct BuiltinFnCallExpr {
+    pub name: String,
+    pub name_tkn: TokCtx,
     pub open_tkn: TokCtx,
     pub args: Vec<(Expr, Option<TokCtx>)>,
     pub close_tkn: TokCtx,

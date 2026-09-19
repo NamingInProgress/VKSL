@@ -100,6 +100,8 @@ impl Display for ArrayType {
         data.push('[');
         if let Some(dim) = &self.dimension {
             data.push_str(&format!("{dim:?}"));
+        } else if let Some(dim) = &self.default_size {
+            data.push_str(&format!("default {}", *dim));
         }
         data.push(']');
         f.write_str(&data)

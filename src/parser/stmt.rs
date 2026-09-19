@@ -245,7 +245,9 @@ impl<I: Iterator<Item = char>> Parser<I> {
                         eq_tkn: eq_tkn.clone(),
                         init: init.clone(),
                         semi_tkn: semi_tkn.clone(),
-                        cnst: true
+                        cnst: true,
+
+                        symbol_id: None,
                     }.into()
                 );
             }
@@ -260,7 +262,9 @@ impl<I: Iterator<Item = char>> Parser<I> {
                         eq_tkn: eq_tkn.clone(),
                         init: init.clone(),
                         semi_tkn: semi_tkn.clone(),
-                        cnst: false
+                        cnst: false,
+
+                        symbol_id: None,
                     }.into()
                 );
             }

@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 use crate::parser::ast::ty::PrimitiveType;
 use crate::scope::ast::expr::Expr;
@@ -10,11 +11,28 @@ pub type SharedType = Rc<RefCell<Type>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
+    // ONLY used for 0 length array at initialization
+    Unknown,
     Primitive(PrimitiveRef),
     ArrayOf(ArrayType),
     StructRef(StructRef),
     StructDef(StructDef),
     Tuple(TupleDef),
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let data = match self {
+            Type::Unknown => "()".to_string(),
+            Type::Primitive(ty) => ty.to_string(),
+            Type::StructRef(ty) => ty.to_string(),
+            Type::ArrayOf(ty) => ty.to_string(),
+            Type::Tuple(ty) => ty.to_string(),
+            Type::StructDef(st) => st.to_string(),
+        };
+
+        f.write_str(&data)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -31,6 +49,12 @@ impl PartialEq for PrimitiveRef {
 
 impl Eq for PrimitiveRef {}
 
+impl Display for PrimitiveRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.ty, f)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ArrayType {
     pub component: Box<Type>,
@@ -46,7 +70,13 @@ pub struct ArrayType {
 impl PartialEq for ArrayType {
     fn eq(&self, other: &Self) -> bool {
         if let Some(this_size) = self.evaluated && let Some(other_size) = other.evaluated {
-            this_size == other_size && self.component == other.component
+            if this_size == other_size {
+                if this_size == 0 {
+                    &*self.component == &Type::Unknown || &*other.component == &Type::Unknown || self.component == other.component
+                } else {
+                    self.component == other.component
+                }
+            } else { false }
         } else {
             panic!("Hello bear, you must not use type comparisons before constants are evaluated!")
         }
@@ -55,10 +85,26 @@ impl PartialEq for ArrayType {
 
 impl Eq for ArrayType {}
 
+impl Display for ArrayType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut data = self.component.to_string();
+        data.push('[');
+        if let Some(dim) = &self.dimension {
+            data.push_str(&format!("{dim:?}"));
+        } else if let Some(dim) = &self.default_size {
+            data.push_str(&format!("default {}", *dim));
+        }
+        data.push(']');
+        f.write_str(&data)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StructRef {
     pub sym: SymbolId,
-    pub name_tkn: TokCtx
+    pub name_tkn: TokCtx,
+
+    pub debug_name: String,
 }
 
 impl PartialEq for StructRef {
@@ -69,6 +115,12 @@ impl PartialEq for StructRef {
 
 impl Eq for StructRef {}
 
+impl Display for StructRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.debug_name)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StructDef {
     pub sym: SymbolId,
@@ -78,6 +130,8 @@ pub struct StructDef {
     pub name_tkn: TokCtx,
     pub brace1_tkn: TokCtx,
     pub brace2_tkn: TokCtx,
+
+    pub debug_name: String,
 }
 
 impl PartialEq for StructDef {
@@ -87,6 +141,13 @@ impl PartialEq for StructDef {
 }
 
 impl Eq for StructDef {}
+
+impl Display for StructDef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.debug_name)?;
+        f.write_str(" { .. }")
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TupleDef {
@@ -109,3 +170,14 @@ impl PartialEq for TupleDef {
 }
 
 impl Eq for TupleDef {}
+
+impl Display for TupleDef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("(")?;
+        for (ty, _) in &self.types {
+            Display::fmt(ty, f)?;
+            f.write_str(", ")?;
+        }
+        f.write_str(")")
+    }
+}

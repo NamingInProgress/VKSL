@@ -1,15 +1,21 @@
+use std::cell::{BorrowMutError, RefMut};
+use std::ops::Deref;
 use crate::{parser, symbol};
 use crate::parser::err::{ParseErr, ParseErrType};
-use crate::scope::ast::Ast;
+use crate::scope::ast::{Ast, Literal};
 use crate::scope::ast::expr::{Expr, LitExpr};
 use crate::scope::ast::stmt::{ExprStmt, Stmt};
-use crate::scope::ast::ty::Type;
-use crate::scope::{SharedScope};
-use crate::token::{Literal, Operator, TokCtx};
+use crate::scope::ast::ty::{ArrayType, StructRef, TupleDef, Type};
+use crate::scope::{SharedScope, Symbol};
+use crate::token::{Operator, TokCtx};
+use crate::token::utils::generate_dummy_expression;
 
 pub fn collapse_constants(mut ast: Ast, scope: &SharedScope) -> parser::Result<Ast> {
-
-    Ok(ast)
+    let mut new_ast = Vec::with_capacity(ast.len());
+    for stmt in ast {
+        new_ast.push(handle_stmt(stmt, scope)?);
+    }
+    Ok(new_ast)
 }
 
 fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
@@ -80,19 +86,21 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
         Stmt::ConstDecl(s) => {
             symbol!((scope => s.symbol) as mut Variable, sym => {
                 if sym.constant.is_none() {
-                optional_ty!(sym, ty, scope);
-                let init = handle_const_expr(sym.init.take().expect("const init must exist"), scope)?;
-                if let Expr::Literal(lit) = init {
-                    sym.constant = Some(lit.lit);
+                    optional_ty!(sym, ty, scope);
+                    sym.is_currently_being_visited = true;
+                    let init = handle_const_expr(sym.init.take().expect("const init must exist"), scope)?;
+                    let lit = extract_const(init, sym.eq_tkn.clone().expect("consts have a value"))?;
+                    sym.constant = Some(lit.lit.clone());
+                    if sym.ty.as_ref().expect("all consts have type") != &lit.lit.ty() {
+                        return Err(ParseErr {
+                            ty: ParseErrType::TypeError(sym.ty.take().unwrap(), lit.lit.ty()),
+                            ctx: sym.eq_tkn.take().expect("consts have a value"),
+                            hint: Some(format!("change type of the constant: `const {}: {} =`", sym.name.val, lit.lit.ty())),
+                        })
+                    }
                     sym.init = Some(Expr::Literal(lit));
-                } else {
-                    return Err(ParseErr {
-                        ty: ParseErrType::ConstantNotAConstant,
-                        ctx: sym.eq_tkn.take().expect("consts have a value"),
-                        hint: Some("try replacing the initialization expression with a literal like `15 + (8 - 3 * 4)`".to_string()),
-                    })
+                    sym.is_currently_being_visited = false;
                 }
-            }
             });
             Stmt::ConstDecl(s)
         }
@@ -143,8 +151,8 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
             let struct_scope = &s.scope;
             symbol!((scope => s.symbol) as mut Struct, sym => {
                 for field in &sym.fields {
-                    symbol!((struct_scope => *field) as mut Variable, field_sym => {
-                        field_sym.ty = Some(handle_type(field_sym.ty.take().expect("struct fields must have type"), struct_scope)?);
+                    symbol!((struct_scope => *field) as mut Field, field_sym => {
+                        field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
                     });
                 }
 
@@ -153,8 +161,8 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
                     let sub_scope = &meth_body.scope;
                     symbol!((scope => meth_body.symbol) as mut Function, sym => {
                         for field in &sym.params {
-                            symbol!((sub_scope => *field) as mut Variable, field_sym => {
-                                optional_ty!(field_sym, ty, sub_scope);
+                            symbol!((sub_scope => *field) as mut FnParam, field_sym => {
+                                field_sym.ty = handle_type(field_sym.ty.clone(), sub_scope)?;
                             });
                         }
                         optional_ty!(sym, return_type, sub_scope);
@@ -203,25 +211,21 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
         Type::ArrayOf(mut a) => {
             if let Some(dim) = a.dimension.take() {
                 let value = handle_const_expr(*dim, scope)?;
-                if let Expr::Literal(lit) = value {
-                    if let Literal::UIntLit(i) = lit.lit {
-                        a.evaluated = Some(i);
-                        a.dimension = Some(Box::new(Expr::Literal(lit)));
-                        Ok(Type::ArrayOf(a))
-                    } else {
-                        Err(ParseErr {
-                            ty: ParseErrType::IllegalArrayDim,
+                let lit = extract_const(value, a.brack1_tkn.clone())?;
+                let i = match lit.lit {
+                    Literal::UIntLit(u) => u,
+                    Literal::IntLit(i) if i >= 0 => i as u32,
+                    _ => {
+                        return Err(ParseErr {
+                            ty: ParseErrType::IllegalArrayDim(lit.lit.ty()),
                             ctx: a.brack1_tkn,
-                            hint: Some("Try replacing the array dimension with a constant that evaluates to an unsigned integer like `12u + 10u`".to_string())
+                            hint: Some(format!("Try replacing the array dimension with a constant that evaluates to an unsigned integer like `{}[12u + 10u]`", *a.component))
                         })
                     }
-                } else {
-                    Err(ParseErr {
-                        ty: ParseErrType::ConstantNotAConstant,
-                        ctx: a.brack1_tkn,
-                        hint: Some("try replacing the array dimension expression with a literal like `51 + (12 - 5 * 3)`".to_string()),
-                    })
-                }
+                };
+                a.evaluated = Some(i);
+                a.dimension = Some(Box::new(Expr::Literal(lit)));
+                Ok(Type::ArrayOf(a))
             } else {
                 Ok(Type::ArrayOf(a))
             }
@@ -234,8 +238,8 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
             let struct_scope = &s.scope;
             symbol!((scope => s.sym) as mut Struct, sym => {
                 for field in &sym.fields {
-                    symbol!((struct_scope => *field) as mut Variable, field_sym => {
-                        field_sym.ty = Some(handle_type(field_sym.ty.take().expect("struct fields must have type"), struct_scope)?);
+                    symbol!((struct_scope => *field) as mut Field, field_sym => {
+                        field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
                     });
                 }
 
@@ -244,10 +248,8 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
                     let sub_scope = &meth_body.scope;
                     symbol!((scope => meth_body.symbol) as mut Function, sym => {
                         for field in &sym.params {
-                            symbol!((sub_scope => *field) as mut Variable, field_sym => {
-                                if let Some(ty) = field_sym.ty.take() {
-                                    field_sym.ty = Some(handle_type(ty, sub_scope)?);
-                                }
+                            symbol!((sub_scope => *field) as mut FnParam, field_sym => {
+                                field_sym.ty = handle_type(field_sym.ty.clone(), sub_scope)?;
                             });
                         }
                         if let Some(ty) = sym.return_type.take() {
@@ -273,6 +275,7 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
             t.types = new_types;
             Ok(Type::Tuple(t))
         }
+        Type::Unknown => Ok(Type::Unknown),
     }
 }
 
@@ -295,6 +298,15 @@ fn handle_non_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr
             }
             f.args = new_args;
             Ok(Expr::FnCall(f))
+        }
+        Expr::BuiltinFnCall(mut f) => {
+            let mut new_args = Vec::with_capacity(f.args.len());
+            for (arg, tok) in f.args.drain(..) {
+                let new_arg = handle_non_const_expr(arg, scope)?;
+                new_args.push((new_arg, tok));
+            }
+            f.args = new_args;
+            Ok(Expr::BuiltinFnCall(f))
         }
         Expr::Access(mut a) => {
             a.parent = Box::new(handle_non_const_expr(*a.parent, scope)?);
@@ -405,45 +417,254 @@ fn handle_non_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr
 
 fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
     match expr {
-        Expr::Unary(e) => {
-            let literal = match handle_const_expr(*e.expr, scope)? {
-                Expr::Literal(lit) => {
-                    lit
-                },
-                Expr::Variable(var) => {
-                    todo!()
-                }
-                other => return Ok(other),
-            };
+        Expr::Unary(u) => {
+            let literal = handle_const_expr(*u.expr, scope)?;
+            let literal = extract_const(literal, u.op_tkn.clone())?;
 
             let tkn = literal.lit_tkn.clone();
-            let literal = apply_op(literal, e.op, None)?;
+            let literal = apply_un_op(literal, u.op, u.op_tkn)?;
             Ok(Expr::Literal(LitExpr {
+                ty: Some(literal.ty()),
                 lit: literal,
                 lit_tkn: tkn,
-                ty: None,
             }))
         }
-        Expr::Binary(e) => {}
-        Expr::FnCall(e) => {}
-        Expr::Access(e) => {}
-        Expr::Variable(e) => {}
-        Expr::Literal(e) => {}
-        Expr::Index(e) => {}
-        Expr::Ternary(e) => {}
-        Expr::PreFix(e) => {}
-        Expr::PostFix(e) => {}
-        Expr::Tuple(e) => {}
-        Expr::Array(e) => {}
-        Expr::Block(e) => {}
-        Expr::Assign(e) => {}
-        Expr::Nonuniform(e) => {}
-        Expr::TupleAccess(e) => {}
-        Expr::AccessFnCall(e) => {}
-        Expr::This(e) => {}
-        Expr::As(e) => {}
-        Expr::Construct(e) => {}
-        Expr::Constructor(e) => {}
+        Expr::Binary(b) => {
+            let lhs = handle_const_expr(*b.lhs, scope)?;
+            let lhs = extract_const(lhs, b.op_tkn.clone())?;
+
+            let rhs = handle_const_expr(*b.rhs, scope)?;
+            let rhs = extract_const(rhs, b.op_tkn.clone())?;
+
+            let tkn = lhs.lit_tkn.clone();
+            let literal = apply_bin_op(lhs, b.op, b.op_tkn, rhs)?;
+            Ok(Expr::Literal(LitExpr {
+                ty: Some(literal.ty())  ,
+                lit: literal,
+                lit_tkn: tkn,
+            }))
+        }
+        // TODO
+        // these are so menacing...
+        Expr::BuiltinFnCall(f) => {}
+        Expr::Access(a) => {}
+
+        Expr::Variable(v) => {
+            let value = scope.borrow().get_symbol(v.ident.symbol);
+            let value = value.get_mut();
+            let Symbol::Variable(variable) = value else {
+                return Err(ParseErr {
+                    ty: ParseErrType::NotAConstant,
+                    ctx: v.ident.tkn,
+                    hint: Some(format!("try removing `{}` or replacing with the name of a constant", v.ident.val)),
+                })
+            };
+            if variable.is_currently_being_visited {
+                return Err(ParseErr {
+                    ty: ParseErrType::CyclicalConstant,
+                    ctx: v.ident.tkn,
+                    hint: Some(format!("try removing the cyclical constant definition by removing `{}` from the expression", v.ident.val)),
+                })
+            }
+            if !variable.cnst {
+                return Err(ParseErr {
+                    ty: ParseErrType::NotAConstant,
+                    ctx: v.ident.tkn,
+                    hint: Some(format!("try removing `{}` or replacing with the name of a constant", v.ident.val)),
+                })
+            }
+            if variable.constant.is_none() {
+                if let Some(ty) = variable.ty.take() {
+                    variable.ty = Some(handle_type(ty, &variable.scope)?);
+                }
+                variable.is_currently_being_visited = true;
+                let init = handle_const_expr(variable.init.take().expect("const init must exist"), scope)?;
+                let lit = extract_const(init, variable.eq_tkn.clone().expect("consts have a value"))?;
+                variable.constant = Some(lit.lit.clone());
+                variable.init = Some(Expr::Literal(lit));
+                variable.is_currently_being_visited = false;
+            }
+            Ok(variable.init.clone().expect("const should have been initialized by now"))
+        }
+        Expr::Literal(l) => Ok(Expr::Literal(l)),
+        Expr::Index(i) => {}
+        Expr::Ternary(t) => {}
+        Expr::TupleAccess(t) => {}
+        Expr::As(a) => {}
+        Expr::Array(a) => {
+            let mut args = Vec::with_capacity(a.args.len());
+            let mut ty = None;
+
+            for (arg, tok) in a.args {
+                let arg = handle_const_expr(arg, scope)?;
+                let value = extract_const(arg, tok.clone().unwrap_or(a.open_tkn.clone()))?;
+
+                if let Some(ty) = &ty {
+                    if ty != &value.lit.ty() {
+                        return Err(ParseErr {
+                            ty: ParseErrType::ArrayTypeMismatch,
+                            ctx: tok.unwrap_or(a.open_tkn),
+                            hint: Some("replace erroneous type value with a different value".to_string()),
+                        })
+                    }
+                } else {
+                    ty = Some(value.lit.ty());
+                }
+
+                args.push(value.lit);
+            }
+
+            let ty = ty.unwrap_or(Type::Unknown);
+            let ty = Type::ArrayOf(ArrayType {
+                component: Box::new(ty),
+                brack1_tkn: TokCtx::empty(),
+                dimension: None,
+                evaluated: Some(args.len() as u32),
+                brack2_tkn: TokCtx::empty(),
+                default_size: None,
+                default_size_tkn: None,
+                default_kw_tkn: None,
+            });
+
+            Ok(Expr::Literal(LitExpr {
+                lit: Literal::ArrayLit {
+                    len: args.len() as u32,
+                    items: args,
+                    ty: Box::new(ty.clone()),
+                },
+                lit_tkn: a.open_tkn,
+                ty: Some(ty),
+            }))
+        }
+        Expr::Tuple(t) => {
+            let mut args = Vec::with_capacity(t.args.len());
+            let mut types = Vec::with_capacity(t.args.len());
+
+            for (arg, tok) in t.args {
+                let arg = handle_const_expr(arg, scope)?;
+                let value = extract_const(arg, tok.clone().unwrap_or(t.open_tkn.clone()))?;
+
+                types.push((value.lit.ty(), None));
+                args.push(value.lit);
+            }
+
+            let ty = Type::Tuple(TupleDef {
+                paren1_tok: TokCtx::empty(),
+                types,
+                paren2_tok: TokCtx::empty(),
+            });
+
+            Ok(Expr::Literal(LitExpr {
+                lit: Literal::TupleLit {
+                    items: args,
+                    ty: Box::new(ty.clone()),
+                },
+                lit_tkn: t.open_tkn,
+                ty: Some(ty),
+            }))
+        }
+        Expr::Construct(c) => {
+            let mut args = Vec::with_capacity(c.fields.len());
+
+            for (arg, tok) in c.fields {
+                let value = handle_const_expr(*arg.expr, scope)?;
+                let value = extract_const(value, tok.clone().unwrap_or(c.brace1_tkn.clone()))?;
+
+                args.push((arg.name.val, value.lit));
+            }
+
+            let ty = Type::StructRef(StructRef {
+                sym: c.name.symbol,
+                name_tkn: c.name.tkn,
+                debug_name: c.name.val,
+            });
+
+            Ok(Expr::Literal(LitExpr {
+                lit: Literal::StructLit {
+                    items: args,
+                    ty: Box::new(ty.clone()),
+                },
+                lit_tkn: c.brace1_tkn,
+                ty: Some(ty),
+            }))
+        }
+
+        Expr::This(t) => {
+            Err(ParseErr {
+                ty: ParseErrType::ThisInConst,
+                ctx: t.this_tkn,
+                hint: None,
+            })
+        }
+        Expr::Block(b) => {
+            Err(ParseErr {
+                ty: ParseErrType::BlockInConst,
+                ctx: b.open_tkn,
+                hint: None,
+            })
+        }
+        Expr::FnCall(f) => {
+            Err(ParseErr {
+                ty: ParseErrType::FunctionInConst,
+                ctx: f.ident.tkn,
+                hint: None,
+            })
+        }
+        Expr::AccessFnCall(a) => {
+            Err(ParseErr {
+                ty: ParseErrType::FunctionInConst,
+                ctx: a.ident.tkn,
+                hint: None,
+            })
+        }
+        Expr::Constructor(c) => {
+            Err(ParseErr {
+                ty: ParseErrType::FunctionInConst,
+                ctx: c.ident.tkn,
+                hint: None,
+            })
+        }
+        Expr::PreFix(p) => {
+            Err(ParseErr {
+                ty: ParseErrType::ModificationInConst,
+                ctx: p.op_tkn,
+                hint: None,
+            })
+        }
+        Expr::PostFix(p) => {
+            Err(ParseErr {
+                ty: ParseErrType::ModificationInConst,
+                ctx: p.op_tkn,
+                hint: None,
+            })
+        }
+        Expr::Assign(a) => {
+            Err(ParseErr {
+                ty: ParseErrType::ModificationInConst,
+                ctx: a.eq_tkn,
+                hint: None,
+            })
+        }
+        Expr::Nonuniform(n) => {
+            Err(ParseErr {
+                ty: ParseErrType::NotAllowed,
+                ctx: n.nonuniform_tkn,
+                hint: None,
+            })
+        }
+    }
+}
+
+fn extract_const(value: Expr, token: TokCtx) -> parser::Result<LitExpr> {
+    if let Expr::Literal(lit) = value {
+        Ok(lit)
+    } else {
+        let example = generate_dummy_expression();
+        Err(ParseErr {
+            ty: ParseErrType::ConstantNotAConstant,
+            ctx: token,
+            hint: Some(format!("try replacing the initialization expression with a literal like `{example}`")),
+        })
     }
 }
 
@@ -475,7 +696,41 @@ impl Lit for LitExpr {
     }
 }
 
-fn apply_op(lhs: impl Lit, op: Operator, rhs: Option<impl Lit>) -> parser::Result<Literal> {
+fn apply_bin_op(lhs: impl Lit, op: Operator, op_tok: TokCtx, rhs: impl Lit) -> parser::Result<Literal> {
+    todo!()
+    match op {
+        Operator::Assign => {}
+        Operator::Plus => {}
+        Operator::Minus => {}
+        Operator::Mul => {}
+        Operator::Div => {}
+        Operator::Dot => {}
+        Operator::Modulo => {}
+        Operator::PlusPlus => {}
+        Operator::MinusMinus => {}
+        Operator::BitOr => {}
+        Operator::BitAnd => {}
+        Operator::BitXor => {}
+        Operator::BitNegate => {}
+        Operator::Greater => {}
+        Operator::GreaterEq => {}
+        Operator::Less => {}
+        Operator::LessEq => {}
+        Operator::And => {}
+        Operator::Or => {}
+        Operator::EqEq => {}
+        Operator::Neq => {}
+        Operator::Not => {}
+        Operator::Lsh => {}
+        Operator::Rsh => {}
+        Operator::LogicalRsh => {}
+        Operator::Merge => {}
+    }
+}
+
+
+fn apply_un_op(lhs: impl Lit, op: Operator, ctx: TokCtx) -> parser::Result<Literal> {
+    todo!()
     match op {
         Operator::Assign => {}
         Operator::Plus => {}

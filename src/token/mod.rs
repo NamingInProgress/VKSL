@@ -18,6 +18,19 @@ pub struct TokCtx {
     pub future: String,
 }
 
+impl TokCtx {
+    pub fn empty() -> Self {
+        TokCtx {
+            line: 0,
+            start_pos: 0,
+            end_pos: 0,
+            file: None,
+            history: SlidingString::new(0),
+            future: String::new(),
+        }
+    }
+}
+
 impl Debug for TokCtx {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str("<tctx>")

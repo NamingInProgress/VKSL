@@ -1,6 +1,14 @@
-uniform set = 0 binding = 0 camera: struct Camera {
-    projection, view: mat4;
-    position: vec3[10];
-};
+const a: int[b] = [1, 2, 3, 4, 5, 6];
+const b: int = 6;
 
-uniform set = 1 binding = 0 test: sampler2D[default 10];
+const c: (int, f32) = (1, 2.0);
+
+struct A {
+    a: int;
+    b: f32;
+}
+
+const e: A = A {
+    a: b,
+    b: 1.0
+};

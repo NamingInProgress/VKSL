@@ -120,6 +120,8 @@ pub struct VarDeclStmt {
     pub init: Option<Expr>,
     pub semi_tkn: TokCtx,
     pub cnst: bool,
+
+    pub symbol_id: Option<SymbolId>,
 }
 
 #[derive(Clone, Debug)]

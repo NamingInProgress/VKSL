@@ -2,26 +2,26 @@ pub mod old;
 pub mod ast;
 pub mod name_res;
 pub mod struct_res;
-//pub mod const_eval;
+pub mod builtins;
+pub mod const_eval;
 
 use crate::parser;
 use crate::parser::ast::UniformType;
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::parser::mods::ResMods;
+use crate::scope::ast::{Ident, Literal};
 use crate::scope::ast::expr::Expr;
 use crate::scope::ast::ty::Type;
-use crate::scope::ast::Ident;
-use crate::token::{Literal, TokCtx};
-use std::cell::{Cell, Ref, RefCell};
+use crate::token::TokCtx;
+use itertools::Itertools;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::mem::MaybeUninit;
-use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use itertools::Itertools;
+use mvutils::unsafe_utils::DangerousCell;
 
 pub type SharedScope = Rc<RefCell<ResolvedScope>>;
-pub type SharedSymbol = Rc<RefCell<Symbol>>;
+pub type SharedSymbol = Rc<DangerousCell<Symbol>>;
 pub type SymbolTable = Rc<RefCell<HashMap<SymbolId, SharedSymbol>>>;
 
 const COUNTER_ID: &str = "SymbolId";
@@ -76,7 +76,7 @@ impl ResolvedScope {
             .filter_map(|(k, v)| {
                 let sym = self.get_symbol_safe(*v);
                 let Some(sym) = sym else { return if matches!(species, SymbolSpecies::Type | SymbolSpecies::Fn) { Some(k.clone()) } else { None } };
-                match &*sym.borrow() {
+                match sym.get() {
                     Symbol::Variable(_) if species == SymbolSpecies::Ident => Some(k.clone()),
                     Symbol::Function(_) if species == SymbolSpecies::Fn => Some(k.clone()),
                     Symbol::Struct(_) if species == SymbolSpecies::Type => Some(k.clone()),
@@ -197,6 +197,7 @@ pub struct VarSym {
     pub mods: ResMods,
     pub semi_tkn: TokCtx,
     pub cnst: bool,
+    pub scope: SharedScope,
 
     pub is_currently_being_visited: bool,
     pub constant: Option<Literal>,
@@ -270,7 +271,7 @@ pub trait SymbolName {
 
 #[macro_export]
 macro_rules! symbol {
-    (($scope:ident => $sym:expr) as $target:ident) => {
+    (($scope:ident => $sym:expr) as $target:ident, $name:ident => $code:block) => {
         {
             #[allow(unused_imports)]
             use crate::scope::Symbol;
@@ -284,9 +285,9 @@ macro_rules! symbol {
             use crate::scope::SharedSymbol;
 
             let shared_sym: SharedSymbol = $scope.borrow().get_symbol($sym);
-            let ref_cell: core::cell::Ref<'_, Symbol> = shared_sym.borrow();
-            let data = &*ref_cell;
-            let data = enum_val_ref!(Symbol, data, $target);
+            let data = shared_sym.get_data();
+            let $name = enum_val_ref!(Symbol, data, $target);
+            $code
         }
     };
     (($scope:ident => $sym:expr) as mut $target:ident, $name:ident => $code:block) => {
@@ -303,8 +304,7 @@ macro_rules! symbol {
             use crate::scope::SharedSymbol;
 
             let shared_sym: SharedSymbol = $scope.borrow().get_symbol($sym);
-            let mut ref_cell: core::cell::RefMut<'_, Symbol> = shared_sym.borrow_mut();
-            let data = &mut *ref_cell;
+            let data = shared_sym.get_mut();
             let $name = enum_val_ref_mut!(Symbol, data, $target);
             $code
         }

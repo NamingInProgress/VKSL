@@ -1,3 +1,5 @@
+use rand::{Rng, RngExt};
+
 #[macro_export]
 macro_rules! T {
     ('(') => {
@@ -297,4 +299,53 @@ macro_rules! Te {
         $crate::Te!(@munch v; $($tok)+);
         v
     }};
+}
+
+pub fn generate_dummy_expression() -> String {
+    let mut rng = rand::rng();
+
+    fn expr(rng: &mut impl Rng, depth: usize) -> String {
+        // More likely to terminate as the tree gets deeper.
+        let terminate_chance = match depth {
+            0 => 0.10,
+            1 => 0.20,
+            2 => 0.35,
+            3 => 0.55,
+            4..=6 => 0.75,
+            _ => 1.0
+        };
+
+        if rng.random_bool(terminate_chance) {
+            return rng.random_range(0..100).to_string();
+        }
+
+        // Occasionally produce a unary expression.
+        if rng.random_bool(0.08) {
+            let operand = expr(rng, depth + 1);
+
+            return format!("-{operand}");
+        }
+
+        let left = expr(rng, depth + 1);
+        let right = expr(rng, depth + 1);
+
+        let op = match rng.random_range(0..=10) {
+            0..4 => "+",
+            4..7 => "-",
+            7..9 => "*",
+            9 => "/",
+            _ => "%",
+        };
+
+        let expression = format!("{left} {op} {right}");
+
+        // Don't necessarily wrap every expression.
+        if rng.random_bool(0.65) {
+            format!("({expression})")
+        } else {
+            expression
+        }
+    }
+
+    expr(&mut rng, 0)
 }
