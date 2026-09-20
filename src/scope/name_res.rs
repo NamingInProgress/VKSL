@@ -219,7 +219,7 @@ fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
         let f_id = make_symbol(field.name.clone(), &struct_scope, |id| Ok(Symbol::Field(FieldSym {
             name: Ident::convert(field.name, id),
             colon_tkn: field.colon_tkn,
-            ty: conv_type(field.ty, &struct_scope)?,
+            ty: conv_type(field.ty, &current_scope)?,
             semi_tkn: field.semi_tkn,
         })))?;
         fields.push(f_id);
@@ -671,6 +671,7 @@ pub fn conv_expr(expr: PExpr, current_scope: &SharedScope) -> Result<Expr> {
             Expr::TupleAccess(TupleAccessExpr {
                 tuple: Box::new(conv_expr(*e.tuple, current_scope)?),
                 component: e.component,
+                component_tkn: e.component_tkn,
                 ty: None,
             })
         }

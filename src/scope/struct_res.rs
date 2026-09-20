@@ -151,6 +151,9 @@ fn handle_stmt(stmt: &mut PStmt, scope: &SharedScope) -> Result<()> {
             if let Some(ty) = &mut s.ty {
                 handle_type(ty, scope)?;
             }
+            if let Some(expr) = s.init.as_mut() {
+                handle_expr(expr, scope)?;
+            }
         }
         PStmt::Input(s) => {
             handle_type(&mut s.ty, scope)?;

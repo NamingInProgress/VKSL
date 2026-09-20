@@ -255,8 +255,7 @@ impl TokCtx {
         let end_edge = if let Some(e) = end.merged_end.clone() {
             Some(e)
         } else if let Some(token) = reconstructed_token(&end) {
-            let (_, e) = make_token_parts(&token);
-            e
+            Some(make_token_parts(&token).0)
         } else {
             None
         };

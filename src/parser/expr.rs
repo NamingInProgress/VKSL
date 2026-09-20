@@ -239,6 +239,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             Ok(Token { ty: TokenType::Operator(Operator::Dot), ctx }) => {
                 self.skip();
                 if let Ok(Token { ty: TokenType::Literal(lit), ctx }) = self.unwrap_peek() {
+                    self.skip();
                     let component = match lit {
                         Literal::UIntLit(v) => v,
                         Literal::IntLit(i) if i >= 0 => i as u32,
@@ -249,6 +250,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     };
                     self.parse_secondary_expression(Expr::TupleAccess(TupleAccessExpr {
                         tuple: Box::new(primary),
+                        component_tkn: ctx,
                         component,
                     }))
                 } else {

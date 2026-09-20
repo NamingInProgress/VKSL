@@ -28,6 +28,15 @@ pub enum Type {
     Tuple(TupleDef),
 }
 
+impl From<PrimitiveType> for Type {
+    fn from(value: PrimitiveType) -> Self {
+        Type::Primitive(PrimitiveRef {
+            ty: value,
+            tkn: TokCtx::empty(),
+        })
+    }
+}
+
 impl Type {
     pub fn as_raw(&self) -> String {
         match self {

@@ -172,7 +172,8 @@ pub struct NonuniformExpr {
 pub struct TupleAccessExpr {
     pub tuple: Box<Expr>,
     pub component: u32,
-    pub ty: Option<Type>
+    pub ty: Option<Type>,
+    pub component_tkn: TokCtx,
 }
 
 #[derive(Clone, Debug)]

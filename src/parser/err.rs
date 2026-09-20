@@ -72,6 +72,11 @@ pub enum ParseErrType {
     MissingFields(String, Vec<String>),
     DuplicateField(String, String),
     CannotCastToType(Type),
+    NotATuple,
+    TupleIndexOutOfBounds(u32, u32),
+    NotAnArray,
+    ArrayIndexOutOfBounds(u32, u32),
+    NegativeArraySize(i32),
 }
 
 impl ParseErrType {
@@ -212,6 +217,21 @@ impl ParseErrType {
             ParseErrType::CannotCastToType(t) => {
                 format!("type `{t}` not supported for casting!")
             }
+            ParseErrType::NotATuple => {
+                "provided expression is not a tuple".to_string()
+            }
+            ParseErrType::TupleIndexOutOfBounds(i, l) => {
+                format!("tuple index `{i}` out of bounds for tuple length {l}")
+            }
+            ParseErrType::NotAnArray => {
+                "provided expression is not an array".to_string()
+            }
+            ParseErrType::ArrayIndexOutOfBounds(i, l) => {
+                format!("array index `{i}` out of bounds for array length {l}")
+            }
+            ParseErrType::NegativeArraySize(i) => {
+                format!("`{i}` is negative and thus cannot be used as an array size")
+            }
         }
     }
 
@@ -259,6 +279,11 @@ impl ParseErrType {
             ParseErrType::MissingFields(_, _) => "missing fields not present".to_string(),
             ParseErrType::DuplicateField(_, _) => "duplicate field definition".to_string(),
             ParseErrType::CannotCastToType(_) => "invalid use of type for cast".to_string(),
+            ParseErrType::NotATuple => "non tuple expression".to_string(),
+            ParseErrType::TupleIndexOutOfBounds(_, _) => "out of bound tuple index".to_string(),
+            ParseErrType::NotAnArray => "non array expression".to_string(),
+            ParseErrType::ArrayIndexOutOfBounds(_, _) => "out of bound array index".to_string(),
+            ParseErrType::NegativeArraySize(_) => "negative array size".to_string(),
         }
     }
 }

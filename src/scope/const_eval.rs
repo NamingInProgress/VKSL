@@ -1,14 +1,15 @@
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::scope::ast::expr::{Expr, LitExpr};
 use crate::scope::ast::stmt::{ExprStmt, Stmt};
-use crate::scope::ast::ty::{ArrayType, CastTarget, StructRef, TupleDef, Type};
-use crate::scope::ast::{Ast, Literal};
+use crate::scope::ast::ty::{ArrayType, CastTarget, PrimitiveRef, StructRef, TupleDef, Type};
+use crate::scope::ast::{ty, Ast, Literal};
 use crate::scope::{SharedScope, Symbol};
 use crate::token::utils::generate_dummy_expression;
 use crate::token::{Operator, TokCtx};
 use crate::{parser, symbol};
 use mvutils::enum_val_ref_mut;
 use std::collections::{HashMap, HashSet};
+use crate::parser::ast::PrimitiveType;
 
 pub fn collapse_constants(mut ast: Ast, scope: &SharedScope) -> parser::Result<Ast> {
     let mut new_ast = Vec::with_capacity(ast.len());
@@ -154,7 +155,7 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
                     sym.is_currently_being_visited = true;
                     for field in &sym.fields {
                         symbol!((struct_scope => *field) as mut Field, field_sym => {
-                            field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
+                            field_sym.ty = handle_type(field_sym.ty.clone(), scope)?;
                             resolved_fields.insert(field_sym.name.val.clone(), field_sym.ty.clone());
                         });
                     }
@@ -248,7 +249,7 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
                     sym.is_currently_being_visited = true;
                     for field in &sym.fields {
                         symbol!((struct_scope => *field) as mut Field, field_sym => {
-                            field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
+                            field_sym.ty = handle_type(field_sym.ty.clone(), scope)?;
                             resolved_fields.insert(field_sym.name.val.clone(), field_sym.ty.clone());
                         });
                     }
@@ -483,9 +484,107 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<LitExpr>
             Ok(cnst)
         }
         Expr::Literal(l) => Ok(l),
-        Expr::Index(i) => {todo!()}
-        Expr::Ternary(t) => {todo!()}
-        Expr::TupleAccess(t) => {todo!()}
+        Expr::Index(i) => {
+            let literal = handle_const_expr(*i.array, scope)?;
+
+            let Literal::ArrayLit { items, len, ty } = literal.lit else {
+                return Err(ParseErr {
+                    ty: ParseErrType::NotAnArray,
+                    ctx: literal.lit_tkn,
+                    hint: Some("tuple indexing is only permitted on tuple values".to_string()),
+                })
+            };
+            let Type::ArrayOf(ty) = *ty else { unreachable!() };
+
+            let index_expr = handle_const_expr(*i.index, scope)?;
+            let index = match index_expr.lit {
+                Literal::UIntLit(u) => u,
+                Literal::IntLit(i) if i >= 0 => i as u32,
+                Literal::IntLit(i) => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::NegativeArraySize(i),
+                        ctx: index_expr.lit_tkn,
+                        hint: Some(format!("try making the array size positive: `{}[{}]`", literal.lit_tkn.get_parts().2, -i)),
+                    })
+                }
+                l => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::IllegalArrayDim(l.ty()),
+                        ctx: index_expr.lit_tkn,
+                        hint: Some(format!("try replacing with a whole positive number: `{}[10]`", literal.lit_tkn.get_parts().2)),
+                    })
+                }
+            };
+
+
+            if index >= len {
+                return Err(ParseErr {
+                    ty: ParseErrType::ArrayIndexOutOfBounds(1u32, len),
+                    ctx: index_expr.lit_tkn,
+                    hint: Some(format!("replace out of bounds literal `{}` with a number between `0` and `{}`", index, len - 1)),
+                })
+            }
+
+            let item = items[index as usize].clone();
+            let ty = *ty.component;
+
+            Ok(LitExpr {
+                lit: item,
+                lit_tkn: TokCtx::merge(literal.lit_tkn, index_expr.lit_tkn),
+                ty: Some(ty),
+            })
+        }
+        Expr::Ternary(t) => {
+            let cond = handle_const_expr(*t.cond, scope)?;
+            let yes = handle_const_expr(*t.yes, scope)?;
+            let no = handle_const_expr(*t.no, scope)?;
+
+            let Literal::BoolLit(cond_val) = cond.lit else {
+                return Err(ParseErr {
+                    ty: ParseErrType::TypeError(PrimitiveType::Bool.into(), cond.lit.ty()),
+                    ctx: cond.lit_tkn,
+                    hint: Some("replace condition of ternary statement with an expression that evaluates to a boolean like `true && (false || true)`".to_string()),
+                })
+            };
+
+            let lit = if cond_val { yes.lit } else { no.lit };
+
+            Ok(LitExpr {
+                ty: Some(lit.ty()),
+                lit,
+                lit_tkn: TokCtx::merge(cond.lit_tkn, no.lit_tkn),
+            })
+        }
+        Expr::TupleAccess(t) => {
+            let literal = handle_const_expr(*t.tuple, scope)?;
+
+            let Literal::TupleLit { items, ty } = literal.lit else {
+                return Err(ParseErr {
+                    ty: ParseErrType::NotATuple,
+                    ctx: literal.lit_tkn,
+                    hint: Some("tuple indexing is only permitted on tuple values".to_string()),
+                })
+            };
+
+            let Type::Tuple(ty) = *ty else { unreachable!() };
+
+            if t.component as usize >= items.len() {
+                return Err(ParseErr {
+                    ty: ParseErrType::TupleIndexOutOfBounds(t.component, items.len() as u32),
+                    ctx: t.component_tkn,
+                    hint: Some(format!("replace out of bounds literal `{}` with a number between `0` and `{}`", t.component, items.len() - 1)),
+                })
+            }
+
+            let item = items[t.component as usize].clone();
+            let ty = ty.types[t.component as usize].0.clone();
+
+            Ok(LitExpr {
+                lit: item,
+                lit_tkn: TokCtx::merge(literal.lit_tkn, t.component_tkn),
+                ty: Some(ty),
+            })
+        }
         Expr::As(a) => {
             let literal = handle_const_expr(*a.expr, scope)?;
 
