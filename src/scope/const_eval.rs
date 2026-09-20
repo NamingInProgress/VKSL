@@ -1,14 +1,14 @@
-use std::cell::{BorrowMutError, RefMut};
-use std::ops::Deref;
-use crate::{parser, symbol};
 use crate::parser::err::{ParseErr, ParseErrType};
-use crate::scope::ast::{Ast, Literal};
 use crate::scope::ast::expr::{Expr, LitExpr};
 use crate::scope::ast::stmt::{ExprStmt, Stmt};
-use crate::scope::ast::ty::{ArrayType, StructRef, TupleDef, Type};
+use crate::scope::ast::ty::{ArrayType, CastTarget, StructRef, TupleDef, Type};
+use crate::scope::ast::{Ast, Literal};
 use crate::scope::{SharedScope, Symbol};
-use crate::token::{Operator, TokCtx};
 use crate::token::utils::generate_dummy_expression;
+use crate::token::{Operator, TokCtx};
+use crate::{parser, symbol};
+use mvutils::enum_val_ref_mut;
+use std::collections::{HashMap, HashSet};
 
 pub fn collapse_constants(mut ast: Ast, scope: &SharedScope) -> parser::Result<Ast> {
     let mut new_ast = Vec::with_capacity(ast.len());
@@ -88,14 +88,13 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
                 if sym.constant.is_none() {
                     optional_ty!(sym, ty, scope);
                     sym.is_currently_being_visited = true;
-                    let init = handle_const_expr(sym.init.take().expect("const init must exist"), scope)?;
-                    let lit = extract_const(init, sym.eq_tkn.clone().expect("consts have a value"))?;
-                    sym.constant = Some(lit.lit.clone());
+                    let lit = handle_const_expr(sym.init.take().expect("const init must exist"), scope)?;
+                    sym.constant = Some(lit.clone());
                     if sym.ty.as_ref().expect("all consts have type") != &lit.lit.ty() {
                         return Err(ParseErr {
                             ty: ParseErrType::TypeError(sym.ty.take().unwrap(), lit.lit.ty()),
-                            ctx: sym.eq_tkn.take().expect("consts have a value"),
-                            hint: Some(format!("change type of the constant: `const {}: {} =`", sym.name.val, lit.lit.ty())),
+                            hint: Some(format!("change type of the constant: `const {}: {} = {};`", sym.name.val, lit.lit.ty().as_raw(), lit.lit_tkn.get_parts().2)),
+                            ctx: lit.lit_tkn,
                         })
                     }
                     sym.init = Some(Expr::Literal(lit));
@@ -112,35 +111,35 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
             y.expr = handle_non_const_expr(y.expr, scope)?;
             Stmt::Yield(y)
         }
-        Stmt::Input(mut i) => {
+        Stmt::Input(i) => {
             symbol!((scope => i.symbol) as mut Input, sym => {
                sym.ty = Some(handle_type(sym.ty.take().expect("shader-specific entries have a type"), scope)?);
             });
 
             Stmt::Input(i)
         }
-        Stmt::Output(mut o) => {
+        Stmt::Output(o) => {
             symbol!((scope => o.symbol) as mut Output, sym => {
                 sym.ty = Some(handle_type(sym.ty.take().expect("shader-specific entries have a type"), scope)?);
             });
 
             Stmt::Output(o)
         }
-        Stmt::Provide(mut p) => {
+        Stmt::Provide(p) => {
             symbol!((scope => p.symbol) as mut Provide, sym => {
                 sym.ty = Some(handle_type(sym.ty.take().expect("shader-specific entries have a type"), scope)?);
             });
 
             Stmt::Provide(p)
         }
-        Stmt::PushConstants(mut p) => {
+        Stmt::PushConstants(p) => {
             symbol!((scope => p.symbol) as mut PushConstant, sym => {
                sym.ty = Some(handle_type(sym.ty.take().expect("shader-specific entries have a type"), scope)?);
             });
 
             Stmt::PushConstants(p)
         }
-        Stmt::Uniform(mut u) => {
+        Stmt::Uniform(u) => {
             symbol!((scope => u.symbol) as mut Uniform, sym => {
                 sym.ty = handle_type(sym.ty.clone(), scope)?;
             });
@@ -150,10 +149,17 @@ fn handle_stmt(stmt: Stmt, scope: &SharedScope) -> parser::Result<Stmt> {
         Stmt::Struct(mut s) => {
             let struct_scope = &s.scope;
             symbol!((scope => s.symbol) as mut Struct, sym => {
-                for field in &sym.fields {
-                    symbol!((struct_scope => *field) as mut Field, field_sym => {
-                        field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
-                    });
+                if sym.resolved_fields.is_none() {
+                    let mut resolved_fields = HashMap::new();
+                    sym.is_currently_being_visited = true;
+                    for field in &sym.fields {
+                        symbol!((struct_scope => *field) as mut Field, field_sym => {
+                            field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
+                            resolved_fields.insert(field_sym.name.val.clone(), field_sym.ty.clone());
+                        });
+                    }
+                    sym.is_currently_being_visited = false;
+                    sym.resolved_fields = Some(resolved_fields);
                 }
 
                 let mut new_methods = Vec::with_capacity(s.methods.len());
@@ -211,20 +217,20 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
         Type::ArrayOf(mut a) => {
             if let Some(dim) = a.dimension.take() {
                 let value = handle_const_expr(*dim, scope)?;
-                let lit = extract_const(value, a.brack1_tkn.clone())?;
-                let i = match lit.lit {
+                let i = match value.lit {
                     Literal::UIntLit(u) => u,
                     Literal::IntLit(i) if i >= 0 => i as u32,
                     _ => {
                         return Err(ParseErr {
-                            ty: ParseErrType::IllegalArrayDim(lit.lit.ty()),
-                            ctx: a.brack1_tkn,
+                            ty: ParseErrType::IllegalArrayDim(value.lit.ty()),
+                            ctx: value.lit_tkn,
                             hint: Some(format!("Try replacing the array dimension with a constant that evaluates to an unsigned integer like `{}[12u + 10u]`", *a.component))
                         })
                     }
                 };
                 a.evaluated = Some(i);
-                a.dimension = Some(Box::new(Expr::Literal(lit)));
+                a.evaluated_tok = Some(value.lit_tkn.clone());
+                a.dimension = Some(Box::new(Expr::Literal(value)));
                 Ok(Type::ArrayOf(a))
             } else {
                 Ok(Type::ArrayOf(a))
@@ -237,10 +243,17 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
         Type::StructDef(mut s) => {
             let struct_scope = &s.scope;
             symbol!((scope => s.sym) as mut Struct, sym => {
-                for field in &sym.fields {
-                    symbol!((struct_scope => *field) as mut Field, field_sym => {
-                        field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
-                    });
+                if sym.resolved_fields.is_none() {
+                    let mut resolved_fields = HashMap::new();
+                    sym.is_currently_being_visited = true;
+                    for field in &sym.fields {
+                        symbol!((struct_scope => *field) as mut Field, field_sym => {
+                            field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
+                            resolved_fields.insert(field_sym.name.val.clone(), field_sym.ty.clone());
+                        });
+                    }
+                    sym.is_currently_being_visited = false;
+                    sym.resolved_fields = Some(resolved_fields);
                 }
 
                 let mut new_methods = Vec::with_capacity(s.methods.len());
@@ -415,34 +428,16 @@ fn handle_non_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr
     }
 }
 
-fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
+fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<LitExpr> {
     match expr {
         Expr::Unary(u) => {
             let literal = handle_const_expr(*u.expr, scope)?;
-            let literal = extract_const(literal, u.op_tkn.clone())?;
-
-            let tkn = literal.lit_tkn.clone();
-            let literal = apply_un_op(literal, u.op, u.op_tkn)?;
-            Ok(Expr::Literal(LitExpr {
-                ty: Some(literal.ty()),
-                lit: literal,
-                lit_tkn: tkn,
-            }))
+            apply_un_op(literal, u.op, u.op_tkn)
         }
         Expr::Binary(b) => {
             let lhs = handle_const_expr(*b.lhs, scope)?;
-            let lhs = extract_const(lhs, b.op_tkn.clone())?;
-
             let rhs = handle_const_expr(*b.rhs, scope)?;
-            let rhs = extract_const(rhs, b.op_tkn.clone())?;
-
-            let tkn = lhs.lit_tkn.clone();
-            let literal = apply_bin_op(lhs, b.op, b.op_tkn, rhs)?;
-            Ok(Expr::Literal(LitExpr {
-                ty: Some(literal.ty())  ,
-                lit: literal,
-                lit_tkn: tkn,
-            }))
+            apply_bin_op(lhs, b.op, b.op_tkn, rhs)
         }
         // TODO
         // these are so menacing...
@@ -478,32 +473,93 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
                     variable.ty = Some(handle_type(ty, &variable.scope)?);
                 }
                 variable.is_currently_being_visited = true;
-                let init = handle_const_expr(variable.init.take().expect("const init must exist"), scope)?;
-                let lit = extract_const(init, variable.eq_tkn.clone().expect("consts have a value"))?;
-                variable.constant = Some(lit.lit.clone());
+                let lit = handle_const_expr(variable.init.take().expect("const init must exist"), scope)?;
+                variable.constant = Some(lit.clone());
                 variable.init = Some(Expr::Literal(lit));
                 variable.is_currently_being_visited = false;
             }
-            Ok(variable.init.clone().expect("const should have been initialized by now"))
+            let mut cnst = variable.constant.clone().expect("const should have been initialized by now");
+            cnst.lit_tkn = v.ident.tkn;
+            Ok(cnst)
         }
-        Expr::Literal(l) => Ok(Expr::Literal(l)),
+        Expr::Literal(l) => Ok(l),
         Expr::Index(i) => {todo!()}
         Expr::Ternary(t) => {todo!()}
         Expr::TupleAccess(t) => {todo!()}
-        Expr::As(a) => {todo!()}
+        Expr::As(a) => {
+            let literal = handle_const_expr(*a.expr, scope)?;
+
+            let Some(ty) = a.target_ty.as_cast() else {
+                return Err(ParseErr {
+                    ty: ParseErrType::CannotCastToType(a.target_ty),
+                    ctx: a.as_tkn,
+                    hint: Some("only primitive types like `int` or `f32` may be used as cast targets".to_string()),
+                })
+            };
+
+            let Type::Primitive(prim_ty) = a.target_ty.clone() else { unreachable!() };
+
+            let lit_ty = literal.lit.ty();
+
+            macro_rules! quick_cast {
+                ($ty:ident, $val:ident, $not:literal) => {
+                    match $ty {
+                        CastTarget::F32 => Literal::FloatLit($val as f32),
+                        CastTarget::F64 => Literal::DoubleLit($val as f64),
+                        CastTarget::Int => Literal::IntLit($val as i32),
+                        CastTarget::Uint => Literal::UIntLit($val as u32),
+                        CastTarget::Bool => Literal::BoolLit($val != $not),
+                    }
+                };
+            }
+
+            let lit = match literal.lit {
+                Literal::BoolLit(val) => {
+                    match ty {
+                        CastTarget::F32 => Literal::FloatLit(val as i32 as f32),
+                        CastTarget::F64 => Literal::DoubleLit(val as i64 as f64),
+                        CastTarget::Int => Literal::IntLit(val as i32),
+                        CastTarget::Uint => Literal::UIntLit(val as u32),
+                        CastTarget::Bool => Literal::BoolLit(val),
+                    }
+                }
+                Literal::IntLit(val) => {
+                    quick_cast!(ty, val, 0)
+                }
+                Literal::UIntLit(val) => {
+                    quick_cast!(ty, val, 0)
+                }
+                Literal::FloatLit(val) => {
+                    quick_cast!(ty, val, 0.0)
+                }
+                Literal::DoubleLit(val) => {
+                    quick_cast!(ty, val, 0.0)
+                }
+                _ => return Err(ParseErr {
+                    ty: ParseErrType::CannotCastToType(lit_ty),
+                    ctx: literal.lit_tkn,
+                    hint: Some("only primitive types like `int` and `f32` may be cast using `as`".to_string()),
+                })
+            };
+
+            Ok(LitExpr {
+                lit,
+                lit_tkn: TokCtx::merge(literal.lit_tkn, prim_ty.tkn),
+                ty: Some(a.target_ty),
+            })
+        }
         Expr::Array(a) => {
             let mut args = Vec::with_capacity(a.args.len());
             let mut ty = None;
 
-            for (arg, tok) in a.args {
-                let arg = handle_const_expr(arg, scope)?;
-                let value = extract_const(arg, tok.clone().unwrap_or(a.open_tkn.clone()))?;
+            for (arg, _) in a.args {
+                let value = handle_const_expr(arg, scope)?;
 
                 if let Some(ty) = &ty {
                     if ty != &value.lit.ty() {
                         return Err(ParseErr {
                             ty: ParseErrType::ArrayTypeMismatch,
-                            ctx: tok.unwrap_or(a.open_tkn),
+                            ctx: value.lit_tkn,
                             hint: Some("replace erroneous type value with a different value".to_string()),
                         })
                     }
@@ -520,31 +576,31 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
                 brack1_tkn: TokCtx::empty(),
                 dimension: None,
                 evaluated: Some(args.len() as u32),
+                evaluated_tok: None,
                 brack2_tkn: TokCtx::empty(),
                 default_size: None,
                 default_size_tkn: None,
                 default_kw_tkn: None,
             });
 
-            Ok(Expr::Literal(LitExpr {
+            Ok(LitExpr {
                 lit: Literal::ArrayLit {
                     len: args.len() as u32,
                     items: args,
                     ty: Box::new(ty.clone()),
                 },
-                lit_tkn: a.open_tkn,
+                lit_tkn: TokCtx::merge(a.open_tkn, a.close_tkn),
                 ty: Some(ty),
-            }))
+            })
         }
         Expr::Tuple(t) => {
             let mut args = Vec::with_capacity(t.args.len());
             let mut types = Vec::with_capacity(t.args.len());
 
             for (arg, tok) in t.args {
-                let arg = handle_const_expr(arg, scope)?;
-                let value = extract_const(arg, tok.clone().unwrap_or(t.open_tkn.clone()))?;
+                let value = handle_const_expr(arg, scope)?;
 
-                types.push((value.lit.ty(), None));
+                types.push((value.lit.ty(), tok));
                 args.push(value.lit);
             }
 
@@ -554,23 +610,85 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
                 paren2_tok: TokCtx::empty(),
             });
 
-            Ok(Expr::Literal(LitExpr {
+            Ok(LitExpr {
                 lit: Literal::TupleLit {
                     items: args,
                     ty: Box::new(ty.clone()),
                 },
-                lit_tkn: t.open_tkn,
+                lit_tkn: TokCtx::merge(t.open_tkn, t.close_tkn),
                 ty: Some(ty),
-            }))
+            })
         }
         Expr::Construct(c) => {
             let mut args = Vec::with_capacity(c.fields.len());
 
-            for (arg, tok) in c.fields {
+            let desired_struct_owned = scope.borrow().get_symbol(c.name.symbol);
+            let r = desired_struct_owned.get_mut();
+            let desired_struct = enum_val_ref_mut!(Symbol, r, Struct);
+
+            if desired_struct.is_currently_being_visited {
+                return Err(ParseErr {
+                    ty: ParseErrType::CyclicalConstantInStruct,
+                    ctx: TokCtx::merge(c.name.tkn, c.brace2_tkn),
+                    hint: Some(format!("try removing the reference to this constant from the definition of `{}`, or avoid using this struct in the constant", c.name.val)),
+                })
+            }
+
+            if desired_struct.resolved_fields.is_none() {
+                let mut resolved_fields = HashMap::new();
+                desired_struct.is_currently_being_visited = true;
+                for field in &desired_struct.fields {
+                    let struct_scope = &desired_struct.internal_scope;
+                    symbol!((struct_scope => *field) as mut Field, field_sym => {
+                            field_sym.ty = handle_type(field_sym.ty.clone(), struct_scope)?;
+                            resolved_fields.insert(field_sym.name.val.clone(), field_sym.ty.clone());
+                        });
+                }
+                desired_struct.is_currently_being_visited = false;
+                desired_struct.resolved_fields = Some(resolved_fields);
+            }
+
+            let mut remaining_fields = desired_struct.resolved_fields.clone().expect("resolved struct must have resolved fields");
+            let mut existing_fields = HashSet::new();
+            drop(desired_struct_owned);
+
+            for (arg, _) in c.fields {
                 let value = handle_const_expr(*arg.expr, scope)?;
-                let value = extract_const(value, tok.clone().unwrap_or(c.brace1_tkn.clone()))?;
+
+                if !existing_fields.insert(arg.name.val.clone()) {
+                    return Err(ParseErr {
+                        hint: Some(format!("remove `{}: {}`", arg.name.val, value.lit_tkn.get_parts().2)),
+                        ty: ParseErrType::DuplicateField(c.name.val, arg.name.val),
+                        ctx: TokCtx::merge(arg.name.tkn, value.lit_tkn),
+                    })
+                }
+
+                if let Some(expected_type) = remaining_fields.remove(&arg.name.val) {
+                    if expected_type != value.lit.ty() {
+                        return Err(ParseErr {
+                            ty: ParseErrType::TypeError(expected_type, value.lit.ty()),
+                            ctx: value.lit_tkn,
+                            hint: Some(format!("change type of `{}` to `{}`", arg.name.val, value.lit.ty())),
+                        })
+                    }
+                } else {
+                    return Err(ParseErr {
+                        hint: Some(format!("remove `{}: {}`", arg.name.val, value.lit_tkn.get_parts().2)),
+                        ty: ParseErrType::NoSuchField(c.name.val, arg.name.val),
+                        ctx: TokCtx::merge(arg.name.tkn, value.lit_tkn),
+                    })
+                }
 
                 args.push((arg.name.val, value.lit));
+            }
+
+            if !remaining_fields.is_empty() {
+                let remaining = remaining_fields.into_keys().collect::<Vec<_>>();
+                return Err(ParseErr {
+                    ty: ParseErrType::MissingFields(c.name.val, remaining),
+                    ctx: c.brace2_tkn,
+                    hint: Some("try adding the missing fields to constructor".to_string()),
+                })
             }
 
             let ty = Type::StructRef(StructRef {
@@ -579,14 +697,14 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
                 debug_name: c.name.val,
             });
 
-            Ok(Expr::Literal(LitExpr {
+            Ok(LitExpr {
                 lit: Literal::StructLit {
                     items: args,
                     ty: Box::new(ty.clone()),
                 },
-                lit_tkn: c.brace1_tkn,
+                lit_tkn: TokCtx::merge(c.brace1_tkn, c.brace2_tkn),
                 ty: Some(ty),
-            }))
+            })
         }
 
         Expr::This(t) => {
@@ -599,28 +717,28 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
         Expr::Block(b) => {
             Err(ParseErr {
                 ty: ParseErrType::BlockInConst,
-                ctx: b.open_tkn,
+                ctx: TokCtx::merge(b.open_tkn, b.close_tkn),
                 hint: None,
             })
         }
         Expr::FnCall(f) => {
             Err(ParseErr {
                 ty: ParseErrType::FunctionInConst,
-                ctx: f.ident.tkn,
+                ctx: TokCtx::merge(f.ident.tkn, f.close_tkn),
                 hint: None,
             })
         }
         Expr::AccessFnCall(a) => {
             Err(ParseErr {
                 ty: ParseErrType::FunctionInConst,
-                ctx: a.ident.tkn,
+                ctx: TokCtx::merge(a.ident.tkn, a.close_tkn),
                 hint: None,
             })
         }
         Expr::Constructor(c) => {
             Err(ParseErr {
                 ty: ParseErrType::FunctionInConst,
-                ctx: c.ident.tkn,
+                ctx: TokCtx::merge(c.ident.tkn, c.close_tkn),
                 hint: None,
             })
         }
@@ -655,6 +773,7 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<Expr> {
     }
 }
 
+// temporarily out of service
 fn extract_const(value: Expr, token: TokCtx) -> parser::Result<LitExpr> {
     if let Expr::Literal(lit) = value {
         Ok(lit)
@@ -667,36 +786,7 @@ fn extract_const(value: Expr, token: TokCtx) -> parser::Result<LitExpr> {
         })
     }
 }
-
-trait Lit {
-    fn lit(&self) -> &Literal;
-    fn token(&self) -> TokCtx;
-    fn ty(&self) -> parser::Result<&Type>;
-}
-
-impl Lit for LitExpr {
-    fn lit(&self) -> &Literal {
-        &self.lit
-    }
-
-    fn token(&self) -> TokCtx {
-        self.lit_tkn.clone()
-    }
-
-    fn ty(&self) -> parser::Result<&Type> {
-        if let Some(ty) = &self.ty {
-            Ok(ty)
-        } else {
-            Err(ParseErr {
-                ty: ParseErrType::MissingType,
-                ctx: self.token(),
-                hint: None,
-            })
-        }
-    }
-}
-
-fn apply_bin_op(lhs: impl Lit, op: Operator, op_tok: TokCtx, rhs: impl Lit) -> parser::Result<Literal> {
+fn apply_bin_op(lhs: LitExpr, op: Operator, op_tok: TokCtx, rhs: LitExpr) -> parser::Result<LitExpr> {
     todo!()
     // match op {
     //     Operator::Assign => {}
@@ -729,7 +819,7 @@ fn apply_bin_op(lhs: impl Lit, op: Operator, op_tok: TokCtx, rhs: impl Lit) -> p
 }
 
 
-fn apply_un_op(lhs: impl Lit, op: Operator, ctx: TokCtx) -> parser::Result<Literal> {
+fn apply_un_op(lhs: LitExpr, op: Operator, ctx: TokCtx) -> parser::Result<LitExpr> {
     todo!()
     // match op {
     //     Operator::Assign => {}

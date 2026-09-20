@@ -3,12 +3,22 @@ const b: int = 6;
 
 const c: (int, f32) = (1, 2.0);
 
+
+const SIZE: int = 2;
 struct A {
     a: int;
     b: f32;
+    c: (int, f64)[SIZE];
+    d: B;
 }
+
+struct B {}
 
 const e: A = A {
     a: b,
-    b: 1.0
+    b: 2 as f32,
+    c: [(1, 2.0f64), (2, 3.0f64)],
+    d: f
 };
+
+const f: B = B {};

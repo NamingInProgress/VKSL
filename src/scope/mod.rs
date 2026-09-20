@@ -9,8 +9,8 @@ use crate::parser;
 use crate::parser::ast::UniformType;
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::parser::mods::ResMods;
-use crate::scope::ast::{Ident, Literal};
-use crate::scope::ast::expr::Expr;
+use crate::scope::ast::{Ident};
+use crate::scope::ast::expr::{Expr, LitExpr};
 use crate::scope::ast::ty::Type;
 use crate::token::TokCtx;
 use itertools::Itertools;
@@ -21,6 +21,10 @@ use std::rc::Rc;
 use mvutils::unsafe_utils::DangerousCell;
 
 pub type SharedScope = Rc<RefCell<ResolvedScope>>;
+// SAFETY: name, struct and const passes must be run single-threaded for each file
+// we always check visiting state before mutating
+// reason for unsafe: need to extract data for error message if accessed again while being mutated
+// will instantly return error and do no more processing if this ever happens (therefore no data races)
 pub type SharedSymbol = Rc<DangerousCell<Symbol>>;
 pub type SymbolTable = Rc<RefCell<HashMap<SymbolId, SharedSymbol>>>;
 
@@ -200,7 +204,7 @@ pub struct VarSym {
     pub scope: SharedScope,
 
     pub is_currently_being_visited: bool,
-    pub constant: Option<Literal>,
+    pub constant: Option<LitExpr>,
 }
 
 #[derive(Clone, Debug)]
@@ -234,6 +238,9 @@ pub struct StructSym {
     pub fields: Vec<SymbolId>,
     pub methods: Vec<SymbolId>,
     pub brace2_tkn: TokCtx,
+
+    pub is_currently_being_visited: bool,
+    pub resolved_fields: Option<HashMap<String, Type>>,
 }
 
 #[derive(Clone, Debug)]

@@ -40,9 +40,11 @@ pub struct Tokenizer<I: Iterator<Item = char>> {
     pub file: Option<PathBuf>,
     pub line: u32,
     pub pos: u32,
+    pub global_pos: u32,
     buffer: VecDeque<Token>,
     pub history: SlidingString,
     pub start_pos: u32,
+    pub global_start_pos: u32,
 }
 
 impl Tokenizer<IntoIter<char>> {
@@ -59,9 +61,11 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
             file,
             line: 1,
             pos: 0,
+            global_pos: 0,
             buffer: VecDeque::new(),
             history: SlidingString::new(HIST_CAP),
             start_pos: 0,
+            global_start_pos: 0,
         }
     }
 
@@ -104,7 +108,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
         let mut c = self.inc()?;
         let start_pos = self.pos;
+        let global_start_pos = self.global_pos;
         self.start_pos = start_pos;
+        self.global_start_pos = global_start_pos;
 
         loop {
             let token_type = match c {
@@ -297,11 +303,16 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                                 ty: raw,
                                 ctx: TokCtx {
                                     line: self.line,
-                                    start_pos,
-                                    end_pos: self.pos,
+                                    line_pos: start_pos,
+                                    start_pos: global_start_pos,
+                                    end_pos: self.global_pos,
                                     file: self.file.clone(),
                                     history: self.history.clone(),
                                     future,
+                                    merged_pre_hist: None,
+                                    merged_hist: None,
+                                    merged_start: None,
+                                    merged_end: None,
                                 },
                             }));
                         }
@@ -418,11 +429,16 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 ty: token_type,
                 ctx: TokCtx {
                     line: self.line,
-                    start_pos,
-                    end_pos: self.pos,
+                    line_pos: start_pos,
+                    start_pos: global_start_pos,
+                    end_pos: self.global_pos,
                     file: self.file.clone(),
                     history: self.history.clone(),
                     future,
+                    merged_pre_hist: None,
+                    merged_hist: None,
+                    merged_start: None,
+                    merged_end: None,
                 },
             }));
         }
@@ -443,11 +459,16 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
         TokCtx {
             line: self.line,
-            start_pos: self.start_pos,
-            end_pos: self.pos,
+            line_pos: self.start_pos,
+            start_pos: self.global_start_pos,
+            end_pos: self.global_pos,
             file: self.file.clone(),
             history: self.history.clone(),
             future,
+            merged_pre_hist: None,
+            merged_hist: None,
+            merged_start: None,
+            merged_end: None,
         }
     }
 
@@ -466,6 +487,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
 
     fn inc(&mut self) -> Option<char> {
         self.pos += 1;
+        self.global_pos += 1;
         let n = self.src.next()?;
         if n == '\n' {
             self.line += 1;

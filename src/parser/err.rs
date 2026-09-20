@@ -67,6 +67,11 @@ pub enum ParseErrType {
     ModificationInConst,
     NotAllowed,
     ArrayTypeMismatch,
+    CyclicalConstantInStruct,
+    NoSuchField(String, String),
+    MissingFields(String, Vec<String>),
+    DuplicateField(String, String),
+    CannotCastToType(Type),
 }
 
 impl ParseErrType {
@@ -191,6 +196,22 @@ impl ParseErrType {
             ParseErrType::ArrayTypeMismatch => {
                 "not all the values in the array are the same type".to_string()
             }
+            ParseErrType::CyclicalConstantInStruct => {
+                "struct type definition references constant which attempts to initialize the same struct".to_string()
+            }
+            ParseErrType::NoSuchField(s, f) => {
+                format!("field `{f}` does not exist on struct `{s}`")
+            }
+            ParseErrType::MissingFields(name, fields) => {
+                let fields = fields.iter().map(|s| format!("`{s}`")).join(", ");
+                format!("missing field(s) {fields} for constructor of `{name}`")
+            }
+            ParseErrType::DuplicateField(s, f) => {
+                format!("field `{f}` defined multiple times in constructor of `{s}`")
+            }
+            ParseErrType::CannotCastToType(t) => {
+                format!("type `{t}` not supported for casting!")
+            }
         }
     }
 
@@ -233,6 +254,11 @@ impl ParseErrType {
             ParseErrType::ModificationInConst => "side effect causing expression".to_string(),
             ParseErrType::NotAllowed => "what made you think this would work?".to_string(),
             ParseErrType::ArrayTypeMismatch => "mismatched array type".to_string(),
+            ParseErrType::CyclicalConstantInStruct => "cyclical struct reference type definition idk how you achieved receiving this error".to_string(),
+            ParseErrType::NoSuchField(_, _) => "init of non existent field".to_string(),
+            ParseErrType::MissingFields(_, _) => "missing fields not present".to_string(),
+            ParseErrType::DuplicateField(_, _) => "duplicate field definition".to_string(),
+            ParseErrType::CannotCastToType(_) => "invalid use of type for cast".to_string(),
         }
     }
 }
@@ -262,25 +288,11 @@ fn fmt_fancy(
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| "<not given>".to_string());
     let line = ctx.line;
-    let pos = ctx.start_pos;
+    let pos = ctx.line_pos;
 
-    let hist = ctx.history.reconstruct();
-    let hist2 = hist.clone();
-    let mut hist_iter = hist2.lines().rev().map(|s| s.to_string());
-    let hist_main = hist_iter
-        .next()
-        .unwrap_or(hist);
-
-    let pre_hist = hist_iter.next();
+    let (pre_hist, hist_part_normal, hist_part_error, padding) = ctx.get_parts();
 
     let future = ctx.future.split('\n').next().map(ToString::to_string).unwrap_or(ctx.future.clone());
-
-    let tok_len = ctx.end_pos - ctx.start_pos + 1;
-    let pad_len = hist_main.len() - (tok_len as usize).min(hist_main.len());
-    let padding = create_pad(pad_len);
-
-    let hist_part_normal: &str = &hist_main[0..pad_len];
-    let hist_part_error: &str = &hist_main[pad_len..];
     let squiggly = "~".repeat(hist_part_error.len());
 
     let mut printer = mvutils::print::Printer::start()
@@ -325,9 +337,9 @@ fn fmt_fancy(
         .col(Col::Cyan)
         .text(" | ")
         .def()
-        .text(hist_part_normal)
+        .text(&hist_part_normal)
         .bg(Col::Red)
-        .text(hist_part_error)
+        .text(&hist_part_error)
         .def()
         .text_ln(&future)
         .def()
@@ -377,6 +389,6 @@ fn fmt_fancy(
     f.write_str(&printed)
 }
 
-fn create_pad(amt: usize) -> String {
+pub(crate) fn create_pad(amt: usize) -> String {
     " ".repeat(amt)
 }

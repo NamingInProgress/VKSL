@@ -252,6 +252,9 @@ fn make_struct(symbol: SymbolId, current_scope: &SharedScope, stmt: parser::ast:
         fields,
         methods,
         brace2_tkn: stmt.brace2_tkn,
+
+        is_currently_being_visited: false,
+        resolved_fields: None,
     })));
 
     guard.insert_symbol(symbol, data);
@@ -755,6 +758,7 @@ pub fn conv_type(ty: PType, current_scope: &SharedScope) -> Result<Type> {
                 brack1_tkn: arr.brack1_tkn,
                 dimension: conv_expr_opt_box(arr.dimension, current_scope)?,
                 evaluated: None,
+                evaluated_tok: None,
                 brack2_tkn: arr.brack2_tkn,
                 default_size: arr.default_size,
                 default_size_tkn: arr.default_size_tkn,

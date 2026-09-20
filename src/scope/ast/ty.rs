@@ -9,6 +9,14 @@ use crate::token::TokCtx;
 
 pub type SharedType = Rc<RefCell<Type>>;
 
+pub enum CastTarget {
+    F32,
+    F64,
+    Int,
+    Uint,
+    Bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
     // ONLY used for 0 length array at initialization
@@ -18,6 +26,31 @@ pub enum Type {
     StructRef(StructRef),
     StructDef(StructDef),
     Tuple(TupleDef),
+}
+
+impl Type {
+    pub fn as_raw(&self) -> String {
+        match self {
+            Type::Unknown => "()".to_string(),
+            Type::Primitive(ty) => ty.to_string(),
+            Type::StructRef(ty) => ty.to_string(),
+            Type::ArrayOf(ty) => ty.as_raw(),
+            Type::Tuple(ty) => ty.as_raw(),
+            Type::StructDef(st) => st.to_string(),
+        }
+    }
+
+    pub fn as_cast(&self) -> Option<CastTarget> {
+        let Type::Primitive(ty) = self else { return None; };
+        match ty.ty {
+            PrimitiveType::F32 => Some(CastTarget::F32),
+            PrimitiveType::F64 => Some(CastTarget::F64),
+            PrimitiveType::Int => Some(CastTarget::Int),
+            PrimitiveType::Uint => Some(CastTarget::Uint),
+            PrimitiveType::Bool => Some(CastTarget::Bool),
+            _ => None
+        }
+    }
 }
 
 impl Display for Type {
@@ -61,6 +94,7 @@ pub struct ArrayType {
     pub brack1_tkn: TokCtx,
     pub dimension: Option<Box<Expr>>,
     pub evaluated: Option<u32>,
+    pub evaluated_tok: Option<TokCtx>,
     pub brack2_tkn: TokCtx,
     pub default_size: Option<u32>,
     pub default_size_tkn: Option<TokCtx>,
@@ -98,6 +132,24 @@ impl Display for ArrayType {
         }
         data.push(']');
         f.write_str(&data)
+    }
+}
+
+impl ArrayType {
+    pub(crate) fn as_raw(&self) -> String {
+        let mut data = self.component.to_string();
+        data.push('[');
+        if let Some(evaluated) = &self.evaluated_tok {
+            data.push_str(&evaluated.get_parts().2);
+        } else if let Some(evaluated) = self.evaluated {
+            data.push_str(&*evaluated.to_string());
+        } else if let Some(dim) = &self.dimension {
+            data.push_str(&format!("{dim:?}"));
+        } else if let Some(dim) = &self.default_size {
+            data.push_str(&format!("default {}", *dim));
+        }
+        data.push(']');
+        data
     }
 }
 
@@ -176,10 +228,26 @@ impl Eq for TupleDef {}
 impl Display for TupleDef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("(")?;
-        for (ty, _) in &self.types {
+        for (ty, tok) in &self.types {
             Display::fmt(ty, f)?;
-            f.write_str(", ")?;
+            if tok.is_some() {
+                f.write_str(", ")?;
+            }
         }
         f.write_str(")")
+    }
+}
+
+impl TupleDef {
+    pub(crate) fn as_raw(&self) -> String {
+        let mut data = "(".to_string();
+        for (ty, tok) in &self.types {
+            data.push_str(&ty.as_raw());
+            if tok.is_some() {
+                data.push_str(", ");
+            }
+        }
+        data.push(')');
+        data
     }
 }
