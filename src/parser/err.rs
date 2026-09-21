@@ -77,6 +77,10 @@ pub enum ParseErrType {
     NotAnArray,
     ArrayIndexOutOfBounds(u32, u32),
     NegativeArraySize(i32),
+    IllegalSwizzleComponent(char),
+    SwizzleTooLong,
+    AccessNotAllowed(Type),
+    SwizzleComponentOutOfBounds(char, Type),
 }
 
 impl ParseErrType {
@@ -232,6 +236,18 @@ impl ParseErrType {
             ParseErrType::NegativeArraySize(i) => {
                 format!("`{i}` is negative and thus cannot be used as an array size")
             }
+            ParseErrType::IllegalSwizzleComponent(e) => {
+                format!("`{e}` is not a valid swizzle component")
+            }
+            ParseErrType::SwizzleTooLong => {
+                "swizzle is too long, swizzles can only be up to 4 components".to_string()
+            }
+            ParseErrType::AccessNotAllowed(t) => {
+                format!("cannot access fields on type `{t}` as it is not a struct, vec or matrix")
+            }
+            ParseErrType::SwizzleComponentOutOfBounds(e, t) => {
+                format!("swizzle component `{e}` is out of bounds for type `{t}`")
+            }
         }
     }
 
@@ -275,7 +291,7 @@ impl ParseErrType {
             ParseErrType::NotAllowed => "what made you think this would work?".to_string(),
             ParseErrType::ArrayTypeMismatch => "mismatched array type".to_string(),
             ParseErrType::CyclicalConstantInStruct => "cyclical struct reference type definition idk how you achieved receiving this error".to_string(),
-            ParseErrType::NoSuchField(_, _) => "init of non existent field".to_string(),
+            ParseErrType::NoSuchField(_, _) => "reference of non existent field".to_string(),
             ParseErrType::MissingFields(_, _) => "missing fields not present".to_string(),
             ParseErrType::DuplicateField(_, _) => "duplicate field definition".to_string(),
             ParseErrType::CannotCastToType(_) => "invalid use of type for cast".to_string(),
@@ -284,6 +300,10 @@ impl ParseErrType {
             ParseErrType::NotAnArray => "non array expression".to_string(),
             ParseErrType::ArrayIndexOutOfBounds(_, _) => "out of bound array index".to_string(),
             ParseErrType::NegativeArraySize(_) => "negative array size".to_string(),
+            ParseErrType::IllegalSwizzleComponent(e) => format!("swizzle with `{e}` component"),
+            ParseErrType::SwizzleTooLong => "illegaly long swizzle".to_string(),
+            ParseErrType::AccessNotAllowed(_) => "illegal field access".to_string(),
+            ParseErrType::SwizzleComponentOutOfBounds(e, _) => format!("swizzle with `{e}` component"),
         }
     }
 }

@@ -287,6 +287,10 @@ fn resolve_ident(old: PIdent, scope: &SharedScope, species: SymbolSpecies) -> Re
     Ok(Ident::convert(old, ident_id))
 }
 
+fn resolve_access(old: PIdent, scope: &SharedScope) -> Ident {
+    Ident::convert(old, scope.borrow().access_id)
+}
+
 /* =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- */
 
 pub fn conv_stmt_opt(expr: Option<PStmt>, current_scope: &SharedScope) -> Result<Option<Stmt>> {
@@ -558,7 +562,7 @@ pub fn conv_expr(expr: PExpr, current_scope: &SharedScope) -> Result<Expr> {
             Expr::Access(AccessExpr {
                 parent: Box::new(conv_expr(*e.parent, current_scope)?),
                 dot_tkn: e.dot_tkn,
-                child: resolve_ident(e.child, current_scope, SymbolSpecies::Ident)?,
+                child: resolve_access(e.child, current_scope),
                 ty: None,
             })
         }

@@ -35,11 +35,13 @@ pub struct ResolvedScope {
     parent: Option<SharedScope>,
     pub symbols: SymbolTable,
     by_name: HashMap<String, SymbolId>,
+    access_id: SymbolId,
 }
 
 impl ResolvedScope {
     pub fn global() -> SharedScope {
         Rc::new(RefCell::new(Self {
+            access_id: mvutils::utils::next_id(COUNTER_ID),
             parent: None,
             symbols: Rc::new(RefCell::new(HashMap::new())),
             by_name: HashMap::new(),
@@ -48,10 +50,12 @@ impl ResolvedScope {
 
     pub fn with_parent(parent: SharedScope) -> SharedScope {
         let symbols = parent.borrow().symbols.clone();
+        let access_id = parent.borrow().access_id;
         Rc::new(RefCell::new(Self {
             parent: Some(parent),
             symbols,
             by_name: HashMap::new(),
+            access_id,
         }))
     }
 }
@@ -316,4 +320,20 @@ macro_rules! symbol {
             $code
         }
     };
+}
+
+pub trait SwizzlePart {
+    fn swizzle_part(&self) -> Option<usize>;
+}
+
+impl SwizzlePart for char {
+    fn swizzle_part(&self) -> Option<usize> {
+        match self {
+            'x' | 'r' | 'u' => Some(0),
+            'y' | 'g' | 'v' => Some(1),
+            'z' | 'b' => Some(2),
+            'w' | 'a' => Some(3),
+            _ => None,
+        }
+    }
 }

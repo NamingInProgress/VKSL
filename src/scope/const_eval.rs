@@ -1,15 +1,16 @@
+use crate::parser::ast::PrimitiveType;
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::scope::ast::expr::{Expr, LitExpr};
 use crate::scope::ast::stmt::{ExprStmt, Stmt};
-use crate::scope::ast::ty::{ArrayType, CastTarget, PrimitiveRef, StructRef, TupleDef, Type};
-use crate::scope::ast::{ty, Ast, Literal};
-use crate::scope::{SharedScope, Symbol};
+use crate::scope::ast::ty::{ArrayType, CastTarget, StructRef, TupleDef, Type};
+use crate::scope::ast::{Ast, Literal};
+use crate::scope::{SharedScope, SwizzlePart, Symbol};
 use crate::token::utils::generate_dummy_expression;
 use crate::token::{Operator, TokCtx};
 use crate::{parser, symbol};
 use mvutils::enum_val_ref_mut;
 use std::collections::{HashMap, HashSet};
-use crate::parser::ast::PrimitiveType;
+use itertools::Itertools;
 
 pub fn collapse_constants(mut ast: Ast, scope: &SharedScope) -> parser::Result<Ast> {
     let mut new_ast = Vec::with_capacity(ast.len());
@@ -221,6 +222,20 @@ fn handle_type(ty: Type, scope: &SharedScope) -> parser::Result<Type> {
                 let i = match value.lit {
                     Literal::UIntLit(u) => u,
                     Literal::IntLit(i) if i >= 0 => i as u32,
+                    Literal::IntLit(i) => {
+                        return Err(ParseErr {
+                            ty: ParseErrType::NegativeArraySize(i),
+                            ctx: value.lit_tkn,
+                            hint: Some(format!("try making the array size positive: `{}[{}]`", a.component.as_raw(), -i)),
+                        })
+                    }
+                    Literal::FloatLit(_) | Literal::DoubleLit(_) => {
+                        return Err(ParseErr {
+                            ty: ParseErrType::IllegalArrayDim(value.lit.ty()),
+                            hint: Some(format!("try casting the size to a uint: `{}[{} as uint]`", a.component.as_raw(), value.lit_tkn.get_parts().2)),
+                            ctx: value.lit_tkn,
+                        })
+                    }
                     _ => {
                         return Err(ParseErr {
                             ty: ParseErrType::IllegalArrayDim(value.lit.ty()),
@@ -441,11 +456,90 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<LitExpr>
             apply_bin_op(lhs, b.op, b.op_tkn, rhs)
         }
         // TODO
-        // these are so menacing...
+        // this is so menacing...
         Expr::BuiltinFnCall(f) => {todo!()}
-        Expr::Access(a) => {todo!()}
+        Expr::Access(a) => {
+            let literal = handle_const_expr(*a.parent, scope)?;
+
+            if let Literal::StructLit { ty, items } = literal.lit {
+                let Type::StructRef(ty) = *ty else { unreachable!() };
+                let Some((_, lit)) = items.into_iter().find(|(name, _)| name == &a.child.val) else {
+                    return Err(ParseErr {
+                        hint: Some(format!("replace .{} with a different field", a.child.val)),
+                        ty: ParseErrType::NoSuchField(ty.debug_name, a.child.val),
+                        ctx: a.child.tkn,
+                    })
+                };
+
+                Ok(LitExpr {
+                    ty: Some(lit.ty()),
+                    lit,
+                    lit_tkn: TokCtx::merge(literal.lit_tkn, a.child.tkn),
+                })
+            } else if literal.lit.is_swizzleable() {
+                let swizzle_parts = a.child.val.chars().map(|c| c.swizzle_part().ok_or(c)).try_collect::<usize, Vec<_>, char>();
+                let parts = match swizzle_parts {
+                    Ok(parts) => parts,
+                    Err(e) => {
+                        let corrected = a.child.val.chars().filter(|c| c.swizzle_part().is_some()).collect::<String>();
+                        return Err(ParseErr {
+                            ty: ParseErrType::IllegalSwizzleComponent(e),
+                            ctx: a.child.tkn,
+                            hint: Some(format!("remove `{}` from swizzle: `{}.{}`", e, literal.lit_tkn.get_parts().2, corrected)),
+                        });
+                    }
+                };
+                if parts.len() > 4 {
+                    let mut new_swizzle = a.child.val.clone();
+                    new_swizzle.truncate(4);
+                    return Err(ParseErr {
+                        ty: ParseErrType::SwizzleTooLong,
+                        ctx: a.child.tkn,
+                        hint: Some(format!("remove trailing components from swizzle: `{}.{}`", literal.lit_tkn.get_parts().2, new_swizzle)),
+                    })
+                }
+
+                let lit = match literal.lit.swizzle(parts) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        let illegal_component = a.child.val[e..=e].chars().next().expect("this just shouldn't fail");
+                        let max_size = literal.lit.max_swizzle_size();
+                        let corrected = a.child.val.chars().filter(|c|
+                            c.swizzle_part().expect("already checked this") < max_size
+                        ).collect::<String>();
+                        return Err(ParseErr {
+                            ty: ParseErrType::SwizzleComponentOutOfBounds(illegal_component, literal.lit.ty()),
+                            ctx: a.child.tkn,
+                            hint: Some(format!("remove `{}` from swizzle: `{}.{}`", illegal_component, literal.lit_tkn.get_parts().2, corrected)),
+                        });
+                    }
+                };
+
+                Ok(LitExpr {
+                    ty: Some(lit.ty()),
+                    lit,
+                    lit_tkn: TokCtx::merge(literal.lit_tkn, a.child.tkn),
+                })
+            } else {
+                return Err(ParseErr {
+                    ty: ParseErrType::AccessNotAllowed(literal.lit.ty()),
+                    ctx: TokCtx::merge(a.dot_tkn, a.child.tkn),
+                    hint: Some(format!("try removing the access expression: `{}`", literal.lit_tkn.get_parts().2)),
+                })
+            }
+        }
 
         Expr::Variable(v) => {
+
+            // WARNING: VERY VERY TEMPORARY TEST SHIT PLEASE REMOVE
+            if v.ident.val == "__test_mat__" {
+                return Ok(LitExpr {
+                    lit: Literal::Mat4([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0], [13.0, 14.0, 15.0, 16.0]]),
+                    lit_tkn: v.ident.tkn,
+                    ty: Some(PrimitiveType::Mat4.into()),
+                })
+            }
+
             let value = scope.borrow().get_symbol(v.ident.symbol);
             let value = value.get_mut();
             let Symbol::Variable(variable) = value else {
@@ -504,7 +598,14 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<LitExpr>
                     return Err(ParseErr {
                         ty: ParseErrType::NegativeArraySize(i),
                         ctx: index_expr.lit_tkn,
-                        hint: Some(format!("try making the array size positive: `{}[{}]`", literal.lit_tkn.get_parts().2, -i)),
+                        hint: Some(format!("try making the array index positive: `{}[{}]`", literal.lit_tkn.get_parts().2, -i)),
+                    })
+                }
+                Literal::FloatLit(_) | Literal::DoubleLit(_) => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::IllegalArrayDim(index_expr.lit.ty()),
+                        hint: Some(format!("try casting the size to a uint: `{}[{} as uint]`", literal.lit_tkn.get_parts().2, index_expr.lit_tkn.get_parts().2)),
+                        ctx: index_expr.lit_tkn,
                     })
                 }
                 l => {
