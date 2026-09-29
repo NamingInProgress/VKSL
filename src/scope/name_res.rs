@@ -7,9 +7,10 @@ use crate::scope::ast::{Ast, Ident};
 use crate::scope::{FieldSym, FnParamSym, FnSym, SharedScope, StructSym, Symbol, SymbolId, SymbolSpecies, UniformSym, VarSym, COUNTER_ID};
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
+use std::str::FromStr;
 use mvutils::enum_val_ref;
 use mvutils::unsafe_utils::DangerousCell;
-use crate::scope::builtins::BUILTIN_FNS;
+use crate::scope::builtins::BuiltinFn;
 
 pub type Result<T> = parser::Result<T>;
 pub type NoResult = parser::Result<()>;
@@ -531,9 +532,9 @@ pub fn conv_expr(expr: PExpr, current_scope: &SharedScope) -> Result<Expr> {
             for (expr, tkn) in e.args {
                 args.push((conv_expr(expr, current_scope)?, tkn))
             }
-            if BUILTIN_FNS.contains(&e.ident.val.as_str()) {
+            if let Ok(function) = BuiltinFn::from_str(&e.ident.val) {
                 Expr::BuiltinFnCall(BuiltinFnCallExpr {
-                    name: e.ident.val,
+                    function,
                     name_tkn: e.ident.tkn,
                     open_tkn: e.open_tkn,
                     args,

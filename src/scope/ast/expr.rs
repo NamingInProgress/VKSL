@@ -2,6 +2,7 @@ use enum_dispatch::enum_dispatch;
 use crate::scope::ast::ty::Type;
 use crate::scope::ast::{Ident, Literal};
 use crate::scope::ast::stmt::Stmt;
+use crate::scope::builtins::BuiltinFn;
 use crate::scope::SharedScope;
 use crate::token::{Operator, TokCtx};
 
@@ -64,7 +65,7 @@ pub struct FnCallExpr {
 
 #[derive(Clone, Debug)]
 pub struct BuiltinFnCallExpr {
-    pub name: String,
+    pub function: BuiltinFn,
     pub name_tkn: TokCtx,
     pub open_tkn: TokCtx,
     pub args: Vec<(Expr, Option<TokCtx>)>,

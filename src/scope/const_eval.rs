@@ -11,6 +11,7 @@ use crate::{parser, symbol};
 use mvutils::enum_val_ref_mut;
 use std::collections::{HashMap, HashSet};
 use itertools::Itertools;
+use crate::scope::builtins::BuiltinFnError;
 
 pub fn collapse_constants(mut ast: Ast, scope: &SharedScope) -> parser::Result<Ast> {
     let mut new_ast = Vec::with_capacity(ast.len());
@@ -455,9 +456,53 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<LitExpr>
             let rhs = handle_const_expr(*b.rhs, scope)?;
             apply_bin_op(lhs, b.op, b.op_tkn, rhs)
         }
-        // TODO
-        // this is so menacing...
-        Expr::BuiltinFnCall(f) => {todo!()}
+        Expr::BuiltinFnCall(mut f) => {
+            let mut args = Vec::with_capacity(f.args.len());
+            for (arg, _) in f.args.drain(..) {
+                let new_arg = handle_const_expr(arg, scope)?;
+                args.push(new_arg.lit);
+            }
+
+            let result = f.function.apply(args);
+
+            let result = match result {
+                Ok(val) => val,
+                Err(BuiltinFnError::NotConstable) => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::NotConstFunction(f.function),
+                        ctx: f.name_tkn,
+                        hint: Some("try replacing with a constantly callable function like `sin`".to_string()),
+                    })
+                }
+                Err(BuiltinFnError::IllegalParamCount) => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::IllegalParamCount(f.function),
+                        ctx: f.name_tkn,
+                        hint: None,
+                    })
+                }
+                Err(BuiltinFnError::IllegalParams) => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::IllegalParams(f.function),
+                        ctx: f.name_tkn,
+                        hint: None,
+                    })
+                }
+                Err(BuiltinFnError::NotImplemented) => {
+                    return Err(ParseErr {
+                        ty: ParseErrType::CompilerVersionAlpha,
+                        ctx: f.name_tkn,
+                        hint: None,
+                    })
+                }
+            };
+
+            Ok(LitExpr {
+                ty: Some(result.ty()),
+                lit: result,
+                lit_tkn: TokCtx::merge(f.name_tkn, f.close_tkn),
+            })
+        }
         Expr::Access(a) => {
             let literal = handle_const_expr(*a.parent, scope)?;
 
@@ -530,16 +575,6 @@ fn handle_const_expr(expr: Expr, scope: &SharedScope) -> parser::Result<LitExpr>
         }
 
         Expr::Variable(v) => {
-
-            // WARNING: VERY VERY TEMPORARY TEST SHIT PLEASE REMOVE
-            if v.ident.val == "__test_mat__" {
-                return Ok(LitExpr {
-                    lit: Literal::Mat4([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0], [13.0, 14.0, 15.0, 16.0]]),
-                    lit_tkn: v.ident.tkn,
-                    ty: Some(PrimitiveType::Mat4.into()),
-                })
-            }
-
             let value = scope.borrow().get_symbol(v.ident.symbol);
             let value = value.get_mut();
             let Symbol::Variable(variable) = value else {
@@ -988,65 +1023,9 @@ fn extract_const(value: Expr, token: TokCtx) -> parser::Result<LitExpr> {
 }
 fn apply_bin_op(lhs: LitExpr, op: Operator, op_tok: TokCtx, rhs: LitExpr) -> parser::Result<LitExpr> {
     todo!()
-    // match op {
-    //     Operator::Assign => {}
-    //     Operator::Plus => {}
-    //     Operator::Minus => {}
-    //     Operator::Mul => {}
-    //     Operator::Div => {}
-    //     Operator::Dot => {}
-    //     Operator::Modulo => {}
-    //     Operator::PlusPlus => {}
-    //     Operator::MinusMinus => {}
-    //     Operator::BitOr => {}
-    //     Operator::BitAnd => {}
-    //     Operator::BitXor => {}
-    //     Operator::BitNegate => {}
-    //     Operator::Greater => {}
-    //     Operator::GreaterEq => {}
-    //     Operator::Less => {}
-    //     Operator::LessEq => {}
-    //     Operator::And => {}
-    //     Operator::Or => {}
-    //     Operator::EqEq => {}
-    //     Operator::Neq => {}
-    //     Operator::Not => {}
-    //     Operator::Lsh => {}
-    //     Operator::Rsh => {}
-    //     Operator::LogicalRsh => {}
-    //     Operator::Merge => {}
-    // }
 }
 
 
 fn apply_un_op(lhs: LitExpr, op: Operator, ctx: TokCtx) -> parser::Result<LitExpr> {
     todo!()
-    // match op {
-    //     Operator::Assign => {}
-    //     Operator::Plus => {}
-    //     Operator::Minus => {}
-    //     Operator::Mul => {}
-    //     Operator::Div => {}
-    //     Operator::Dot => {}
-    //     Operator::Modulo => {}
-    //     Operator::PlusPlus => {}
-    //     Operator::MinusMinus => {}
-    //     Operator::BitOr => {}
-    //     Operator::BitAnd => {}
-    //     Operator::BitXor => {}
-    //     Operator::BitNegate => {}
-    //     Operator::Greater => {}
-    //     Operator::GreaterEq => {}
-    //     Operator::Less => {}
-    //     Operator::LessEq => {}
-    //     Operator::And => {}
-    //     Operator::Or => {}
-    //     Operator::EqEq => {}
-    //     Operator::Neq => {}
-    //     Operator::Not => {}
-    //     Operator::Lsh => {}
-    //     Operator::Rsh => {}
-    //     Operator::LogicalRsh => {}
-    //     Operator::Merge => {}
-    // }
 }

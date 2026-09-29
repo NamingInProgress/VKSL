@@ -7,6 +7,7 @@ use itertools::Itertools;
 use crate::parser::ast::ty::PrimitiveType;
 use crate::parser::mods::Modifier;
 use crate::scope::ast::ty::Type;
+use crate::scope::builtins::BuiltinFn;
 
 #[derive(Clone, Debug)]
 pub struct ParseErr {
@@ -81,6 +82,10 @@ pub enum ParseErrType {
     SwizzleTooLong,
     AccessNotAllowed(Type),
     SwizzleComponentOutOfBounds(char, Type),
+    NotConstFunction(BuiltinFn),
+    IllegalParamCount(BuiltinFn),
+    IllegalParams(BuiltinFn),
+    CompilerVersionAlpha,
 }
 
 impl ParseErrType {
@@ -248,6 +253,18 @@ impl ParseErrType {
             ParseErrType::SwizzleComponentOutOfBounds(e, t) => {
                 format!("swizzle component `{e}` is out of bounds for type `{t}`")
             }
+            ParseErrType::NotConstFunction(f) => {
+                format!("function `{f}` is not callable from a constant expression")
+            }
+            ParseErrType::IllegalParamCount(f) => {
+                format!("illegal parameter count for constant function `{f}`")
+            }
+            ParseErrType::IllegalParams(f) => {
+                format!("illegal parameters provided for constant function `{f}`")
+            }
+            ParseErrType::CompilerVersionAlpha => {
+                "sad as it may be, the compiler is still in alpha and we do not support everything we should yet".to_string()
+            }
         }
     }
 
@@ -304,6 +321,10 @@ impl ParseErrType {
             ParseErrType::SwizzleTooLong => "illegaly long swizzle".to_string(),
             ParseErrType::AccessNotAllowed(_) => "illegal field access".to_string(),
             ParseErrType::SwizzleComponentOutOfBounds(e, _) => format!("swizzle with `{e}` component"),
+            ParseErrType::NotConstFunction(_) => "illegal function call".to_string(),
+            ParseErrType::IllegalParamCount(_) => "illegal function call".to_string(),
+            ParseErrType::IllegalParams(_) => "illegal function call".to_string(),
+            ParseErrType::CompilerVersionAlpha => "be excited for the update!".to_string(),
         }
     }
 }
