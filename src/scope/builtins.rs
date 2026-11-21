@@ -1,3 +1,4 @@
+use std::mem;
 use itertools::Itertools;
 use mvutils_proc_macro::TryFromString;
 use crate::scope::ast::Literal;
@@ -1010,6 +1011,15 @@ impl BuiltinFn {
                         $(
                         (Literal::$t4(a), Literal::$t4(b)) => Ok(Literal::$t4(a.into_iter().zip(b.into_iter()).map(|($name1, $name2)| $expr).collect_array::<4>().unwrap()))
                         ),*,
+                        $(
+                        (Literal::$t2(a), Literal::$t1($name2)) => Ok(Literal::$t2(a.into_iter().map(|$name1| $expr).collect_array::<2>().unwrap()))
+                        ),*,
+                        $(
+                        (Literal::$t3(a), Literal::$t1($name2)) => Ok(Literal::$t3(a.into_iter().map(|$name1| $expr).collect_array::<3>().unwrap()))
+                        ),*,
+                        $(
+                        (Literal::$t4(a), Literal::$t1($name2)) => Ok(Literal::$t4(a.into_iter().map(|$name1| $expr).collect_array::<4>().unwrap()))
+                        ),*,
                         _ => Err(BuiltinFnError::IllegalParams),
                     }
                 }
@@ -1106,9 +1116,7 @@ impl BuiltinFn {
 
             BuiltinFn::Pow => per_field_fn2_floatlike!((a, b) => a.powf(b)),
             BuiltinFn::Atan2 => per_field_fn2_floatlike!((a, b) => a.atan2(b)),
-
-
-
+            
             _ => Err(BuiltinFnError::NotConstable),
         }
     }
