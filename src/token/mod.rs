@@ -183,8 +183,8 @@ impl TokCtx {
 
         let combined_token = match (start_token, end_token) {
             (Some(a), Some(b)) => {
-                if start.end_pos + 1 >= end.start_pos {
-                    let overlap_start = end.start_pos.saturating_sub(start.start_pos);
+                if start.end_pos >= end.start_pos {
+                    let overlap_start = start.end_pos.saturating_sub(end.start_pos);
                     let overlap = overlap_start as usize;
 
                     let b_chars: Vec<char> = b.chars().collect();
@@ -325,6 +325,10 @@ impl TokCtx {
 
             (pre_hist, hist_part_normal, hist_part_error, padding)
         }
+    }
+
+    pub fn get_future_line(&self) -> String {
+        self.future.split('\n').next().map(ToString::to_string).unwrap_or(self.future.clone())
     }
 }
 

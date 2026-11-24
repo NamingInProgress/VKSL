@@ -84,7 +84,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
                     lit_tkn: next.ctx,
                 })
             }
-            TokenType::Operator(op) if matches!(op, Operator::Minus | Operator::Not) => {
+            TokenType::Operator(op) if matches!(op, Operator::Minus | Operator::Not | Operator::BitNegate) => {
                 let expr = self.parse_primary_expression()?;
                 Expr::Unary(UnaryExpr {
                     op,

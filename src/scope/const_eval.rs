@@ -1027,5 +1027,85 @@ fn apply_bin_op(lhs: LitExpr, op: Operator, op_tok: TokCtx, rhs: LitExpr) -> par
 
 
 fn apply_un_op(lhs: LitExpr, op: Operator, ctx: TokCtx) -> parser::Result<LitExpr> {
-    todo!()
+    macro_rules! unary_op {
+        (
+            ($opname:literal, $op:literal),
+            ($($t1:ident),*),
+            ($($t2:ident),*),
+            ($($t3:ident),*),
+            $name:ident => $expr:expr
+        ) => {
+            match lhs.lit {
+                $(
+                Literal::$t1($name) => Ok(Literal::$t1($expr))
+                ),*,
+                $(
+                Literal::$t2(a) => Ok(Literal::$t2(a.map(|$name| $expr)))
+                ),*,
+                $(
+                Literal::$t3(a) => Ok(Literal::$t3(a.map(|b| b.map(|$name| $expr)))),
+                )*
+                l => {
+                    let (_, mut hist, data, _) = lhs.lit_tkn.get_parts();
+                    let future = lhs.lit_tkn.get_future_line();
+                    hist.pop();
+                    Err(ParseErr {
+                        ty: ParseErrType::IllegalUnaryType(l.ty(), $opname),
+                        ctx: lhs.lit_tkn.clone(),
+                        hint: Some(format!("Try removing the {} operator: `{hist}{data}{future}`", $op)),
+                    })
+                }
+            }
+        };
+    }
+
+    match op {
+        Operator::Minus => {
+            let lit = unary_op!(
+                ("minus", "-"),
+                (IntLit, FloatLit, DoubleLit),
+                (Vec2, IVec2, DVec2, Vec3, IVec3, DVec3, Vec4, IVec4, DVec4),
+                (Mat2, Mat3, Mat4, Mat2x3, Mat2x4, Mat3x2, Mat3x4, Mat4x2, Mat4x3, DMat2, DMat3, DMat4, DMat2x3, DMat2x4, DMat3x2, DMat3x4, DMat4x2, DMat4x3),
+                i => -i
+            )?;
+
+            Ok(LitExpr {
+                ty: Some(lit.ty()),
+                lit,
+                lit_tkn: TokCtx::merge(ctx, lhs.lit_tkn),
+            })
+        }
+        Operator::BitNegate => {
+            let lit = unary_op!(("bitwise not", "~"), (IntLit, UIntLit), (IVec2, UVec2, IVec3, UVec3, IVec4, UVec4), (), i => i.reverse_bits())?;
+
+            Ok(LitExpr {
+                ty: Some(lit.ty()),
+                lit,
+                lit_tkn: TokCtx::merge(ctx, lhs.lit_tkn),
+            })
+        }
+        Operator::Not => {
+            match lhs.lit {
+                Literal::BoolLit(b) => {
+                    let l = Literal::BoolLit(!b);
+                    Ok(LitExpr {
+                        ty: Some(l.ty()),
+                        lit: l,
+                        lit_tkn: TokCtx::merge(ctx, lhs.lit_tkn),
+                    })
+                }
+                l => {
+                    let (_, mut hist, data, _) = lhs.lit_tkn.get_parts();
+                    let future = lhs.lit_tkn.get_future_line();
+                    hist.pop();
+                    Err(ParseErr {
+                        ty: ParseErrType::IllegalUnaryType(l.ty(), "boolean not"),
+                        ctx: lhs.lit_tkn,
+                        hint: Some(format!("Try removing the ! operator: `{hist}{data}{future}`")),
+                    })
+                }
+            }
+        }
+        op => unreachable!("parser generated unary expr with illegal operator '{}'", op)
+    }
 }

@@ -85,6 +85,7 @@ pub enum ParseErrType {
     NotConstFunction(BuiltinFn),
     IllegalParamCount(BuiltinFn),
     IllegalParams(BuiltinFn),
+    IllegalUnaryType(Type, &'static str),
     CompilerVersionAlpha,
 }
 
@@ -262,6 +263,9 @@ impl ParseErrType {
             ParseErrType::IllegalParams(f) => {
                 format!("illegal parameters provided for constant function `{f}`")
             }
+            ParseErrType::IllegalUnaryType(ty, unary) => {
+                format!("{unary} operator cannot be applied to type {ty}")
+            }
             ParseErrType::CompilerVersionAlpha => {
                 "sad as it may be, the compiler is still in alpha and we do not support everything we should yet".to_string()
             }
@@ -324,6 +328,7 @@ impl ParseErrType {
             ParseErrType::NotConstFunction(_) => "illegal function call".to_string(),
             ParseErrType::IllegalParamCount(_) => "illegal function call".to_string(),
             ParseErrType::IllegalParams(_) => "illegal function call".to_string(),
+            ParseErrType::IllegalUnaryType(_, _) => "illegal type into unary operator".to_string(),
             ParseErrType::CompilerVersionAlpha => "be excited for the update!".to_string(),
         }
     }
@@ -358,7 +363,7 @@ fn fmt_fancy(
 
     let (pre_hist, hist_part_normal, hist_part_error, padding) = ctx.get_parts();
 
-    let future = ctx.future.split('\n').next().map(ToString::to_string).unwrap_or(ctx.future.clone());
+    let future = ctx.get_future_line();
     let squiggly = "~".repeat(hist_part_error.len());
 
     let mut printer = mvutils::print::Printer::start()
