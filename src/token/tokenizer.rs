@@ -422,7 +422,7 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                 let c = self.src.peek_nth(i);
                 if let Some(c) = c {
                     future.push(*c);
-                }
+                } else { break; }
             }
 
             return Some(Ok(Token {
@@ -472,6 +472,84 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
         }
     }
 
+    pub fn next_raw(&mut self) -> std::result::Result<(char, TokCtx), TokenErr> {
+        let c = self.inc().ok_or(TokenErr::EOF)?;
+        let start_pos = self.pos;
+        let global_start_pos = self.global_pos;
+        self.start_pos = start_pos;
+        self.global_start_pos = global_start_pos;
+
+
+        let mut future = String::with_capacity(FUTURE_CAP);
+        for i in 0..FUTURE_CAP {
+            let c = self.src.peek_nth(i);
+            if let Some(c) = c {
+                future.push(*c);
+            } else { break; }
+        }
+
+        let ctx = TokCtx {
+            line: self.line,
+            line_pos: start_pos,
+            start_pos: global_start_pos,
+            end_pos: self.global_pos,
+            file: self.file.clone(),
+            history: self.history.clone(),
+            future,
+            merged_pre_hist: None,
+            merged_hist: None,
+            merged_start: None,
+            merged_end: None,
+        };
+
+        Ok((c, ctx))
+    }
+
+    pub fn next_import(&mut self, end: char) -> std::result::Result<(String, TokCtx), TokenErr> {
+        let c = self.inc().ok_or(TokenErr::EOF)?;
+        let start_pos = self.pos;
+        let global_start_pos = self.global_pos;
+        self.start_pos = start_pos;
+        self.global_start_pos = global_start_pos;
+
+        let mut buf = c.to_string();
+
+        loop {
+           match self.peek() {
+               None => return Err(TokenErr::EOF),
+               Some(c) if c == end => break,
+               Some(c) => {
+                   buf.push(c);
+                   self.inc().ok_or(TokenErr::EOF)?;
+               }
+           }
+        }
+
+        let mut future = String::with_capacity(FUTURE_CAP);
+        for i in 0..FUTURE_CAP {
+            let c = self.src.peek_nth(i);
+            if let Some(c) = c {
+                future.push(*c);
+            } else { break; }
+        }
+
+        let ctx = TokCtx {
+            line: self.line,
+            line_pos: start_pos,
+            start_pos: global_start_pos,
+            end_pos: self.global_pos,
+            file: self.file.clone(),
+            history: self.history.clone(),
+            future,
+            merged_pre_hist: None,
+            merged_hist: None,
+            merged_start: None,
+            merged_end: None,
+        };
+
+        Ok((buf, ctx))
+    }
+
     fn is_lit_part(n: char, is_num: bool, is_hex: bool) -> bool {
         if is_num {
             matches!(n, 'e' | '-' | 'b' | 'x')
@@ -481,7 +559,9 @@ impl<I: Iterator<Item = char>> Tokenizer<I> {
                     n.is_numeric()
                 }
         } else {
-            matches!(n, '_' | '$' | 'e') || n.is_alphanumeric()
+            // pray this works, but it should be pretty solid
+            !(n.is_whitespace() || matches!(n, '(' | ')' | '{' | '}' | '[' | ']' | ',' | ';' | ':' | '?' | '.' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '!' | '=' | '|' | '&' | '^' | '~'))
+            // matches!(n, '_' | '$' | 'e' | '\'') || n.is_alphanumeric()
         }
     }
 

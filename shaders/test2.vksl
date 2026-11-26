@@ -1,0 +1,2 @@
+#include "../test.vksl"
+const TWO_PIS: f32 = vec2(PI);

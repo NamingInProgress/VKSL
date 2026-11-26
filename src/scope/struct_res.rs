@@ -11,6 +11,8 @@ type PType = parser::ast::Type;
 
 type Result<T> = parser::Result<T>;
 
+// TODO: huge imporant todo GASP ALARM: this must be updated so that in the first phase we retain the tokens for each name, and errors should display source files
+
 fn handle_struct(stmt: &mut StructStmt, scope: &SharedScope) -> Result<()> {
     let struct_scope = ResolvedScope::with_parent(scope.clone());
     stmt.fut_scope = Some(struct_scope);
@@ -196,10 +198,9 @@ fn handle_stmt(stmt: &mut PStmt, scope: &SharedScope) -> Result<()> {
         PStmt::Yield(y) => {
             handle_expr(&mut y.expr, scope)?;
         }
-        PStmt::Break(_) | PStmt::Continue(_) | PStmt::Extension(_) | PStmt::Semi(_) => {
+        PStmt::Break(_) | PStmt::Continue(_) | PStmt::Extension(_) | PStmt::Semi(_) | PStmt::Include(_) => {
             // we can ignore this!!!
         }
-        PStmt::Include(_) => todo!(),
     };
     Ok(())
 }

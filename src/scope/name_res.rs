@@ -402,9 +402,6 @@ pub fn conv_stmt(stmt: PStmt, current_scope: &SharedScope) -> Result<Stmt> {
                 continue_tkn: s.continue_tkn,
             })
         }
-        PStmt::Include(s) => {
-            todo!()
-        }
         PStmt::Extension(s) => {
             Stmt::Extension(ExtensionStmt {
                 mods: s.mods,
@@ -486,6 +483,7 @@ pub fn conv_stmt(stmt: PStmt, current_scope: &SharedScope) -> Result<Stmt> {
                 semi_tkn: s.semi_tkn,
             })
         }
+        PStmt::Include(_) => critical_error!(),
     };
 
     Ok(c)

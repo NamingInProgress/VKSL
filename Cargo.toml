@@ -1,5 +1,5 @@
 [package]
-name = "VKSL"
+name = "vkslc"
 version = "0.1.0"
 edition = "2024"
 

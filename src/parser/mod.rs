@@ -5,6 +5,7 @@ use crate::token::{Literal, TokCtx, Token, TokenType};
 use crate::token;
 use err::TokenExpectation::*;
 use ast::Ast;
+use crate::parser::ast::IncludeStmt;
 
 pub mod err;
 pub mod expr;
@@ -20,6 +21,7 @@ pub type TokenRes = token::tokenizer::Result;
 pub struct Parser<I: Iterator<Item = char>> {
     tokens: Tokenizer<I>,
     defs: Vec<Stmt>,
+    includes: Vec<IncludeStmt>,
 }
 
 impl<I: Iterator<Item = char>> Parser<I> {
@@ -27,16 +29,21 @@ impl<I: Iterator<Item = char>> Parser<I> {
         Self {
             tokens,
             defs: vec![],
+            includes: vec![],
         }
     }
 
-    pub fn parse(mut self) -> Result<Ast> {
+    pub fn parse(mut self) -> Result<(Ast, Vec<IncludeStmt>)> {
         while let Some(_) = self.peek_token()? {
-            let s = self.parse_stmt()?;
-            self.defs.push(s);
+            let s = self.parse_stmt(true)?;
+            if let Stmt::Include(i) = s {
+                self.includes.push(i);
+            } else {
+                self.defs.push(s);
+            }
         }
 
-        Ok(self.defs)
+        Ok((self.defs, self.includes))
     }
 
     fn expect_next(&mut self, expected: Vec<TokenExpectation>) -> Result<Token> {
@@ -64,6 +71,24 @@ impl<I: Iterator<Item = char>> Parser<I> {
         }
 
         Ok(next)
+    }
+
+    fn expect_next_raw(&mut self, expected: Vec<char>) -> Result<(char, TokCtx)> {
+        let (next, ctx) = self.tokens.next_raw().map_err(|e| self.tokenizer_err(ParseErrType::TokenizerErr(e)))?;
+
+        for option in &expected {
+            if next == *option {
+                return Ok((next, ctx));
+            }
+        }
+
+        let ty = ParseErrType::UnexpectedChar(next, expected);
+
+        Err(ParseErr {
+            ty,
+            ctx,
+            hint: Some("Consider using one of the listed characters instead.".to_string()),
+        })
     }
 
     fn expect_non_negative_int(&mut self) -> Result<(u32, TokCtx)> {

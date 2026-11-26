@@ -139,10 +139,21 @@ pub struct YieldStmt {
 }
 
 #[derive(Clone, Debug)]
+pub enum IncludeFlavour {
+    /// Relative path to current file
+    Local,
+    /// Files inside include directories
+    Includes
+}
+
+#[derive(Clone, Debug)]
 pub struct IncludeStmt {
     pub include_tkn: TokCtx,
-    pub include: Type,
-    pub semi_tkn: TokCtx,
+    pub flavour: IncludeFlavour,
+    pub open_tkn: TokCtx,
+    pub path: String,
+    pub path_tkn: TokCtx,
+    pub close_tkn: TokCtx,
 }
 
 #[derive(Clone, Debug)]

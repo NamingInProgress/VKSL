@@ -4,14 +4,14 @@ use crate::parser::err::TokenExpectation::*;
 use crate::parser::mods::{ModRule, Modifier, ModsUsage};
 use crate::parser::Parser;
 use crate::token::{Keyword, Operator, TokenType};
-use crate::{parser, Te, T};
+use crate::{parser, Te, T, critical_error};
 use mvutils::enum_val;
-use crate::parser::ast::ArrayType;
+use crate::parser::ast::{ArrayType, IncludeFlavour, IncludeStmt};
 use crate::parser::err::{ParseErr, ParseErrType};
 use crate::parser::types::{DefaultRuleset, ALLOWS_DEFAULT_TYPES};
 
 impl<I: Iterator<Item = char>> Parser<I> {
-    pub fn parse_stmt(&mut self) -> parser::Result<Stmt> {
+    pub fn parse_stmt(&mut self, allow_include: bool) -> parser::Result<Stmt> {
         let token = self.unwrap_peek()?;
 
         match token.ty {
@@ -19,10 +19,31 @@ impl<I: Iterator<Item = char>> Parser<I> {
                 Ok(SemiStmt { semi_tkn: self.expect_semi()?.ctx }.into())
             }
             TokenType::Keyword(kw) => {
-                Ok(self.parse_keyword(kw)?)
+                Ok(self.parse_keyword(kw, allow_include)?)
             }
             TokenType::LBrace => {
                 Ok(self.parse_block()?.into())
+            }
+            TokenType::Ident(s) if allow_include && s == "#include" => {
+                let include = self.unwrap_next()?;
+                self.expect_next_raw(vec![' '])?;
+                let (open, open_tkn) = self.expect_next_raw(vec!['"', '<'])?;
+                let (flavour, end) = match open {
+                    '<' => (IncludeFlavour::Includes, '>'),
+                    '"' => (IncludeFlavour::Local, '"'),
+                    _ => critical_error!()
+                };
+
+                let (path, tkn) = self.tokens.next_import(end).map_err(|e| self.token_err(ParseErrType::TokenizerErr(e), include.clone()))?;
+                let close_tkn = self.expect_next_raw(vec!['"', '>'])?.1;
+                Ok(Stmt::Include(IncludeStmt {
+                    include_tkn: include.ctx,
+                    flavour,
+                    open_tkn,
+                    path,
+                    path_tkn: tkn,
+                    close_tkn,
+                }))
             }
             _ => Ok(self.parse_expr_stmt()?),
         }
@@ -37,7 +58,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         )
     }
 
-    pub fn parse_keyword(&mut self, keyword: Keyword) -> parser::Result<Stmt> {
+    pub fn parse_keyword(&mut self, keyword: Keyword, allow_include: bool) -> parser::Result<Stmt> {
         match keyword {
             Keyword::Input => self.parse_shader_input(false),
             Keyword::Provide => self.parse_shader_input(true),
@@ -183,7 +204,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
         if self.check_next(Te!('{'))? {
             stmt = Box::new(Stmt::Block(self.parse_block()?));
         } else {
-            stmt = Box::new(self.parse_stmt()?);
+            stmt = Box::new(self.parse_stmt(false)?);
         }
         Ok(stmt)
     }
@@ -475,7 +496,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
 
         let mut block = vec![];
         while self.unwrap_peek()?.ty != T!('}') {
-            let s = self.parse_stmt()?;
+            let s = self.parse_stmt(false)?;
             block.push(s);
         }
 

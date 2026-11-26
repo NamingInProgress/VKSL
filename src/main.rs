@@ -1,42 +1,17 @@
-use crate::token::tokenizer::Tokenizer;
 use mvutils::utils::UnwrapDisplay;
-use parser::Parser;
-use std::path::Path;
-use crate::scope::{const_eval, name_res, struct_res};
+use crate::compiler::{VkslCompiler, VkslCompilerOptions};
 
 pub mod parser;
 pub mod token;
 pub mod scope;
-
-#[macro_export]
-macro_rules! critical_error {
-    () => {
-        panic!("critical error: {}:{}", file!(), line!())
-    };
-}
+pub mod compiler;
 
 fn main() {
-    fn parse() -> parser::Result<()> {
-        // for token in Tokenizer::from_str(include_str!("../simple.vksl").to_string()) {
-        //     println!("{token:?}")
-        // }
-    
-        let source = include_str!("../simple.vksl").chars();
-        let tokens = Tokenizer::new(source, Some(Path::new("simple.vksl").into()));
-        let parser = Parser::new(tokens);
-        let mut result = parser.parse()?;
-        let global_scope = struct_res::handle_ast(&mut result)?;
-        let result = name_res::conv_ast(result, global_scope.clone())?;
-        let const_evaled = const_eval::collapse_constants(result, &global_scope)?;
-        for stmt in const_evaled {
-            println!("{stmt:#?}");
-        }
+    let compiler = VkslCompiler::new(VkslCompilerOptions {
+        input: "simple.vksl".into(),
+        output: "out.spv".into(),
+        include: vec!["src".into(), "shaders".into()],
+    });
 
-        println!("=======");
-        let g = global_scope.borrow();
-        println!("{:#?}", g.symbols);
-    
-        Ok(())
-    }
-    parse().unwrapd();
+    compiler.compile().unwrapd();
 }

@@ -317,11 +317,13 @@ impl TokCtx {
             let pre_hist = hist_iter.next();
 
             let tok_len = self.end_pos - self.start_pos + 1;
-            let pad_len = hist_main.len() - (tok_len as usize).min(hist_main.len());
+            let pad_len = hist_main.chars().count() - (tok_len as usize).min(hist_main.chars().count());
             let padding = create_pad(pad_len);
 
-            let hist_part_normal = hist_main[0..pad_len].to_string();
-            let hist_part_error = hist_main[pad_len..].to_string();
+            let pad_idx = hist_main.char_indices().nth(pad_len).map(|(i, _)| i).unwrap_or(pad_len);
+
+            let hist_part_normal = hist_main[0..pad_idx].to_string();
+            let hist_part_error = hist_main[pad_idx..].to_string();
 
             (pre_hist, hist_part_normal, hist_part_error, padding)
         }
@@ -416,8 +418,6 @@ pub enum Keyword {
     Let,
     #[casing(Lower)]
     Const,
-    #[casing(Lower)]
-    Include,
     #[casing(Lower)]
     Extension,
     #[casing(Lower)]
@@ -526,7 +526,7 @@ impl Display for TokenType {
             TokenType::Literal(lit) => write!(f, "{lit}"),
             TokenType::Operator(op) => write!(f, "{op}"),
             TokenType::OperatorAssign(oa) => write!(f, "{oa}="),
-            TokenType::Ident(ident) => write!(f, "{ident}")
+            TokenType::Ident(ident) => write!(f, "{ident}"),
         }
     }
 }
@@ -556,7 +556,6 @@ impl Display for Keyword {
             Keyword::Yield => "yield",
             Keyword::Let => "let",
             Keyword::Const => "const",
-            Keyword::Include => "include",
             Keyword::Extension => "extension",
             Keyword::Input => "input",
             Keyword::Output => "output",

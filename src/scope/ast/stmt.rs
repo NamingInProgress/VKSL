@@ -24,7 +24,6 @@ pub enum Stmt {
     Yield(YieldStmt),
     Break(BreakStmt),
     Continue(ContinueStmt),
-    Include(IncludeStmt),
     Extension(ExtensionStmt),
     Input(InputStmt),
     Output(OutputStmt),
@@ -112,13 +111,6 @@ pub struct ReturnStmt {
 pub struct YieldStmt {
     pub yield_tkn: TokCtx,
     pub expr: Expr,
-    pub semi_tkn: TokCtx,
-}
-
-#[derive(Clone, Debug)]
-pub struct IncludeStmt {
-    pub include_tkn: TokCtx,
-    pub include: parser::ast::Type,
     pub semi_tkn: TokCtx,
 }
 

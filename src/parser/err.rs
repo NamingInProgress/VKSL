@@ -3,6 +3,7 @@ use crate::token::{Operator, Token, TokCtx, TokenType};
 use mvutils::print::{Col, Fmt};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 use itertools::Itertools;
 use crate::parser::ast::ty::PrimitiveType;
 use crate::parser::mods::Modifier;
@@ -33,8 +34,10 @@ impl Display for ParseErr {
 
 #[derive(Debug, Clone)]
 pub enum ParseErrType {
+    IoError(Arc<std::io::Error>),
     TokenizerErr(TokenErr),
     UnexpectedToken(Token, Vec<TokenExpectation>),
+    UnexpectedChar(char, Vec<char>),
     UnconstrainedUnexpectedToken(TokenType),
     NonBinaryCompatibleOperator(Operator),
     NonUnaryCompatibleOperator(Operator),
@@ -87,11 +90,15 @@ pub enum ParseErrType {
     IllegalParams(BuiltinFn),
     IllegalUnaryType(Type, &'static str),
     CompilerVersionAlpha,
+    IncludeNotFound(String),
 }
 
 impl ParseErrType {
     pub fn get_message(&self) -> String {
         match self {
+            ParseErrType::IoError(e) => {
+                format!("IO error: {}", e)
+            }
             ParseErrType::TokenizerErr(_) => {
                 "invalid syntax".to_string()
             }
@@ -107,6 +114,10 @@ impl ParseErrType {
                     .join(", ");
 
                 format!("\texpected any of {available}, but found `{}`", found.ty)
+            }
+            ParseErrType::UnexpectedChar(found, expected) => {
+                let available = expected.iter().map(|c| format!("`{c}`")).join(", ");
+                format!("\texpected any of {available}, but found `{}`", found)
             }
             ParseErrType::UnconstrainedUnexpectedToken(found) => {
                 format!("\tunexpected `{}`", found)
@@ -266,6 +277,9 @@ impl ParseErrType {
             ParseErrType::IllegalUnaryType(ty, unary) => {
                 format!("{unary} operator cannot be applied to type {ty}")
             }
+            ParseErrType::IncludeNotFound(include) => {
+                format!("could not find file `{include}`")
+            }
             ParseErrType::CompilerVersionAlpha => {
                 "sad as it may be, the compiler is still in alpha and we do not support everything we should yet".to_string()
             }
@@ -274,10 +288,12 @@ impl ParseErrType {
 
     pub fn get_summary(&self) -> String {
         match self {
+            ParseErrType::IoError(_) => "I/O Error".to_string(),
             ParseErrType::TokenizerErr(e) => {
                 format!("{e:?}")
             }
             ParseErrType::UnexpectedToken(_, _) => "illegal token".to_string(),
+            ParseErrType::UnexpectedChar(_, _) => "illegal character".to_string(),
             ParseErrType::UnconstrainedUnexpectedToken(_) => "illegal token".to_string(),
             ParseErrType::NonBinaryCompatibleOperator(o) => { format!("invalid use of {o}") }
             ParseErrType::NonUnaryCompatibleOperator(o) => { format!("invalid use of {o}") }
@@ -329,6 +345,7 @@ impl ParseErrType {
             ParseErrType::IllegalParamCount(_) => "illegal function call".to_string(),
             ParseErrType::IllegalParams(_) => "illegal function call".to_string(),
             ParseErrType::IllegalUnaryType(_, _) => "illegal type into unary operator".to_string(),
+            ParseErrType::IncludeNotFound(_) => "invalid include".to_string(),
             ParseErrType::CompilerVersionAlpha => "be excited for the update!".to_string(),
         }
     }

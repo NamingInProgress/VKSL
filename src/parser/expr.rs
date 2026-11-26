@@ -176,7 +176,7 @@ impl<I: Iterator<Item = char>> Parser<I> {
             TokenType::LBrace => {
                 let mut block = Vec::new();
                 while !matches!(self.unwrap_peek(), Ok(Token { ty: TokenType::RBrace, .. } )) {
-                    block.push(self.parse_stmt()?);
+                    block.push(self.parse_stmt(false)?);
                 }
                 let close_tkn = self.expect_next(Te!['}'])?.ctx;
                 Expr::Block(BlockExpr {
