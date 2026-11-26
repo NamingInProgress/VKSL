@@ -8,6 +8,7 @@ use crate::token::tokenizer::SlidingString;
 use mvutils_proc_macro::TryFromString;
 use std::path::PathBuf;
 
+// TODO: big fat refactor: replace history token context with Arc<Mutex<String>> in Compiler which contains history, TokCtx has indices
 #[derive(Clone, PartialEq)]
 pub struct TokCtx {
     pub line: u32,

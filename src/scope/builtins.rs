@@ -1117,6 +1117,8 @@ impl BuiltinFn {
 
             BuiltinFn::Pow => per_field_fn2_floatlike!((a, b) => a.powf(b)),
             BuiltinFn::Atan2 => per_field_fn2_floatlike!((a, b) => a.atan2(b)),
+
+            BuiltinFn::FloatBitsToInt => Err(BuiltinFnError::NotImplemented),
             
             _ => Err(BuiltinFnError::NotConstable),
         }

@@ -41,16 +41,25 @@ impl VkslCompiler {
 
     pub fn compile(mut self) -> parser::Result<()> {
         let input = std::path::absolute(self.options.input.clone()).map_err(Self::io_err)?;
-        let mut result = self.process_file(input)?;
+
+        let canonical_path = input.canonicalize().map_err(Self::io_err)?;
+        self.included.insert(canonical_path);
+
+        let (mut structs, mut ast) = self.process_file(input)?;
 
         while !self.queue.is_empty() {
             let next = self.queue.pop_front().unwrap();
-            result.append(&mut self.process_file(next)?);
+            let (mut extra_structs, mut extra_ast) = self.process_file(next)?;
+            structs.append(&mut extra_structs);
+            ast.append(&mut extra_ast);
         }
 
-        let global_scope = struct_res::handle_ast(&mut result)?;
-        let result = name_res::conv_ast(result, global_scope.clone())?;
-        let const_evaled = const_eval::collapse_constants(result, &global_scope)?;
+        structs.append(&mut ast);
+        let mut ast = structs;
+
+        let global_scope = struct_res::handle_ast(&mut ast)?;
+        let ast = name_res::conv_ast(ast, global_scope.clone())?;
+        let const_evaled = const_eval::collapse_constants(ast, &global_scope)?;
         for stmt in const_evaled {
             println!("{stmt:#?}");
         }
@@ -62,13 +71,13 @@ impl VkslCompiler {
         Ok(())
     }
 
-    fn process_file(&mut self, path: PathBuf) -> parser::Result<parser::ast::Ast> {
+    fn process_file(&mut self, path: PathBuf) -> parser::Result<(parser::ast::Ast, parser::ast::Ast)> {
         let mut buffer = String::new();
         let parent_dir = path.parent().expect("Path is a file thus has a parent").to_path_buf();
         File::open(path).map_err(Self::io_err)?.read_to_string(&mut buffer).map_err(Self::io_err)?;
         let tokens = Tokenizer::new(buffer.chars(), Some(Path::new("simple.vksl").into()));
         let parser = Parser::new(tokens);
-        let (result, includes) = parser.parse()?;
+        let (structs, ast, includes) = parser.parse()?;
 
         for include in &includes {
             println!("{:?}", include);
@@ -76,7 +85,7 @@ impl VkslCompiler {
 
         self.process_includes(includes, parent_dir)?;
 
-        Ok(result)
+        Ok((structs, ast))
     }
 
     fn process_includes(&mut self, includes: Vec<IncludeStmt>, parent: PathBuf) -> parser::Result<()> {

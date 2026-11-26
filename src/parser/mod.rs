@@ -20,6 +20,7 @@ pub type TokenRes = token::tokenizer::Result;
 
 pub struct Parser<I: Iterator<Item = char>> {
     tokens: Tokenizer<I>,
+    structs: Vec<Stmt>,
     defs: Vec<Stmt>,
     includes: Vec<IncludeStmt>,
 }
@@ -28,22 +29,25 @@ impl<I: Iterator<Item = char>> Parser<I> {
     pub fn new(tokens: Tokenizer<I>) -> Self {
         Self {
             tokens,
+            structs: vec![],
             defs: vec![],
             includes: vec![],
         }
     }
 
-    pub fn parse(mut self) -> Result<(Ast, Vec<IncludeStmt>)> {
+    pub fn parse(mut self) -> Result<(Ast, Ast, Vec<IncludeStmt>)> {
         while let Some(_) = self.peek_token()? {
             let s = self.parse_stmt(true)?;
             if let Stmt::Include(i) = s {
                 self.includes.push(i);
+            } else if let Stmt::Struct(s) = s {
+                self.structs.push(Stmt::Struct(s));
             } else {
                 self.defs.push(s);
             }
         }
 
-        Ok((self.defs, self.includes))
+        Ok((self.structs, self.defs, self.includes))
     }
 
     fn expect_next(&mut self, expected: Vec<TokenExpectation>) -> Result<Token> {

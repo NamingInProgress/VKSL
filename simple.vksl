@@ -1,3 +1,4 @@
+// this is legit just a fucking stress test of the compiler
 #include <test2.vksl>
 #include "test.vksl"
 
@@ -53,3 +54,10 @@ const m: vec2 = atan2(l, 2.0);
 const n: bool = !!!true;
 
 const o: ivec2 = ~ivec2(1, 2);
+
+const test: Test = Test { a: 1, b: [1] };
+struct Test {
+    a: int;
+    b: int[1];
+}
+

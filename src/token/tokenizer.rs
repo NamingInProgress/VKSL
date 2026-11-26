@@ -11,8 +11,8 @@ use std::vec::IntoIter;
 
 pub type Result = core::result::Result<Token, TokenErr>;
 
-pub const HIST_CAP: usize = 60;
-pub const FUTURE_CAP: usize = 20;
+pub const HIST_CAP: usize = 100;
+pub const FUTURE_CAP: usize = 50;
 
 #[derive(Clone, PartialEq)]
 pub enum TokenErr {
